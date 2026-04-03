@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(brew list:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:sdw-wsrest.ecb.europa.eu)",
+      "WebFetch(domain:pandas-datareader.readthedocs.io)",
+      "WebFetch(domain:data-api.ecb.europa.eu)",
+      "WebFetch(domain:www.bundesbank.de)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:newsapi.org)",
+      "WebFetch(domain:api.worldbank.org)",
+      "mcp__MCP_DOCKER__search"
+    ]
+  }
+}

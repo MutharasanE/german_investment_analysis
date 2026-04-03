@@ -1,0 +1,10 @@
+feature,maxNesuf,best_pair_low,best_pair_high
+return_1y,1.0,0,5
+volume_avg,0.28125,8,9
+eur_usd,0.14528356481481478,2,9
+ecb_rate,0.1111111111111111,3,6
+momentum,0.10320855614973262,1,7
+max_drawdown,0.08749999999999998,0,6
+de_inflation,0.07465277777777779,8,9
+volatility,0.01666666666666665,5,6
+vix,0.0078125,8,9

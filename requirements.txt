@@ -1,0 +1,10 @@
+streamlit==1.56.0
+catboost==1.2.10
+shap==0.51.0
+numpy==2.4.4
+pandas==3.0.2
+matplotlib==3.10.8
+networkx==3.6.1
+scipy==1.15.3
+pymongo[srv]
+dnspython
