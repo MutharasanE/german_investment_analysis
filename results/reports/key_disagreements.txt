@@ -1,0 +1,14 @@
+KEY DISAGREEMENTS: SHAP vs LEWIS Feature Rankings
+============================================================
+
+Features where SHAP (correlational) and LEWIS (causal) rankings
+differ by 2+ positions. These disagreements reveal where correlation
+does not imply causation in the investment domain.
+
+Feature: vix
+  SHAP rank: 4 | LEWIS rank: 6 (diff: 2)
+  Interpretation: VIX has high SHAP importance (correlated with crisis periods) but lower LEWIS Nesuf (cannot be intervened upon by investors — macro variable)
+
+Feature: momentum
+  SHAP rank: 6 | LEWIS rank: 3 (diff: 3)
+  Interpretation: Momentum may rank high in SHAP (strong predictor) but differently in LEWIS depending on whether causal graph identifies direct vs indirect effects

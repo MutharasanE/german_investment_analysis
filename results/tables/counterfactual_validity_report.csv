@@ -1,0 +1,8 @@
+feature,maxNesuf,actionable,feasible_counterfactual,note
+eur_usd,0.6455,False,False,macro (non-actionable)
+volatility,0.6378,True,True,stock (actionable)
+momentum,0.5637,True,True,stock (actionable)
+rsi_14,0.3589,True,True,stock (actionable)
+volume_avg,0.3013,True,True,stock (actionable)
+vix,0.1581,False,False,macro (non-actionable)
+max_drawdown,0.0198,True,True,stock (actionable)

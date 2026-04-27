@@ -1,279 +1,284 @@
 """
-Main experiment pipeline.
-Reproduces the experiments from Takahashi et al. (2024) and extends to investment data.
+Master pipeline runner. Executes all steps in order.
+Usage: python src/pipeline.py --steps all
+       python src/pipeline.py --steps 1,2,3
+       python src/pipeline.py --steps 5,6,7  (skip download if data exists)
 """
 
+import argparse
+import importlib.util
+import logging
 import warnings
-import numpy as np
-import pandas as pd
-from tqdm import tqdm
+import time
+import sys
+import os
+from pathlib import Path
 
-# Suppress numpy warnings from empty slices in probability computation
+# Suppress known harmless warnings
 warnings.filterwarnings("ignore", message="Mean of empty slice")
-warnings.filterwarnings("ignore", message="invalid value encountered in scalar divide")
-# Suppress LiNGAM HSIC kernel overflow warnings (harmless — large values in RBF kernel)
-warnings.filterwarnings("ignore", message="overflow encountered in exp")
-warnings.filterwarnings("ignore", message="invalid value encountered in subtract")
-warnings.filterwarnings("ignore", message="invalid value encountered in add")
-warnings.filterwarnings("ignore", message="invalid value encountered in reduce")
-warnings.filterwarnings("ignore", message="invalid value encountered in scalar subtract")
+warnings.filterwarnings("ignore", message="invalid value encountered")
+warnings.filterwarnings("ignore", category=FutureWarning)
 
-from .data_generation import (
-    THREE_VAR_GENERATORS, THREE_VAR_TRUE_GRAPHS,
-    generate_8var_data, EIGHT_VAR_TRUE_GRAPH, EIGHT_VAR_FEATURE_NAMES,
+# Project root
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+os.chdir(PROJECT_ROOT)
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# Ensure output directories exist before setting up logging
+for d in ["data/raw", "data/processed", "results/plots", "results/tables",
+          "results/reports", "models", "notebooks"]:
+    Path(d).mkdir(parents=True, exist_ok=True)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("results/pipeline.log"),
+        logging.StreamHandler(),
+    ],
 )
-from .discretization import discretize_dataframe
-from .causal_discovery import METHODS, METHOD_PRIORS
-from .lewis import compute_all_scores
-from .evaluation import evaluate_trial, aggregate_trials, format_result
+logger = logging.getLogger(__name__)
+
+STEPS = {
+    1: ("Data Download",         "01_data_download"),
+    2: ("Feature Engineering",   "02_feature_engineering"),
+    3: ("Labeling",              "03_labeling"),
+    4: ("Data Preparation",      "04_data_preparation"),
+    5: ("Baseline + SHAP",       "05_baseline_model"),
+    6: ("Causal Discovery",      "06_causal_discovery"),
+    7: ("LEWIS Scores",          "07_lewis_scores"),
+    8: ("Evaluation",            "08_evaluation"),
+    9: ("Comparison",            "09_comparison"),
+    10: ("Governance Report",    "10_governance"),
+}
 
 
-def run_3var_experiment(n_samples=5000, n_bins=10, func_type="linear",
-                        distribution="uniform", n_trials=100):
+def load_step(module_name):
     """
-    Reproduce Section III: 3-variable analysis.
-    Compute Nesuf for structures A-E using the TRUE causal graph.
+    Import a step module from src/ by filename.
+    Uses importlib.util to handle numeric prefixes in module names.
+    Sets __package__ = "src" so relative imports (e.g., from .backdoor) work.
     """
-    results = {}
-
-    for struct_name, generator in THREE_VAR_GENERATORS.items():
-        nesuf_x_list = []
-        nesuf_z_list = []
-
-        for trial in tqdm(range(n_trials), desc=f"Structure {struct_name}"):
-            df = generator(n_samples, func_type=func_type, distribution=distribution)
-            df_disc = discretize_dataframe(df, target_col="Y", n_bins=n_bins)
-
-            adj = THREE_VAR_TRUE_GRAPHS[struct_name]
-            col_names = ["X", "Z", "Y"]
-
-            # Train classifier to get predictions
-            from catboost import CatBoostClassifier
-            features = df_disc[["X", "Z"]]
-            target = df_disc["Y"]
-            model = CatBoostClassifier(iterations=100, depth=6, verbose=0)
-            model.fit(features, target)
-            df_disc["Y_pred"] = model.predict(features).flatten()
-
-            # Compute maxNesuf using predicted values
-            scores = compute_all_scores(
-                df_disc, ["X", "Z"], "Y_pred", adj, col_names
-            )
-            x_score = scores[scores["feature"] == "X"]["maxNesuf"].values[0]
-            z_score = scores[scores["feature"] == "Z"]["maxNesuf"].values[0]
-            nesuf_x_list.append(x_score)
-            nesuf_z_list.append(z_score)
-
-        results[struct_name] = {
-            "X": {"mean": np.mean(nesuf_x_list), "std": np.std(nesuf_x_list)},
-            "Z": {"mean": np.mean(nesuf_z_list), "std": np.std(nesuf_z_list)},
-        }
-
-    return results
+    file_path = PROJECT_ROOT / "src" / f"{module_name}.py"
+    full_name = f"src.{module_name}"
+    spec = importlib.util.spec_from_file_location(full_name, file_path)
+    mod = importlib.util.module_from_spec(spec)
+    mod.__package__ = "src"
+    sys.modules[full_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def run_8var_experiment(n_samples=5000, n_bins=10, func_type="linear",
-                        distribution="uniform", mixed=False, n_trials=100,
-                        methods=None, priors=None):
+def _preload_state(state, steps_to_run):
     """
-    Reproduce Section IV: 8-variable experiment with causal discovery.
-
-    Compares estimated Nesuf (from discovered graph) vs true Nesuf (from known graph).
+    Load previously saved artifacts from disk so that later steps can run
+    without re-running earlier steps. Only loads what's needed and available.
     """
-    feature_names = ["X1", "X2", "X3", "X4", "X5", "X6", "X7"]
-    col_names = EIGHT_VAR_FEATURE_NAMES  # includes Y
-    target_idx = 7  # Y is the last column
-
-    if methods is None:
-        methods = ["DirectLiNGAM", "PC"]
-    if priors is None:
-        priors = ["0", "a", "b"]
-
-    all_results = []
-
-    for method_name in methods:
-        supported_priors = METHOD_PRIORS.get(method_name, ["0"])
-        method_fn = METHODS[method_name]
-
-        for prior in priors:
-            if prior not in supported_priors:
-                continue
-
-            trial_results = []
-            print(f"\n--- {method_name} (prior={prior}) ---")
-
-            for trial in tqdm(range(n_trials), desc=f"{method_name}({prior})"):
-                # Generate data
-                df = generate_8var_data(n_samples, func_type=func_type,
-                                        distribution=distribution, mixed=mixed)
-                df_disc = discretize_dataframe(df, target_col="Y", n_bins=n_bins)
-
-                # Train classifier
-                from catboost import CatBoostClassifier
-                features = df_disc[feature_names]
-                target = df_disc["Y"]
-                model = CatBoostClassifier(iterations=200, depth=6, verbose=0)
-                model.fit(features, target)
-                df_disc["Y_pred"] = model.predict(features).flatten()
-
-                # Compute TRUE Nesuf using known graph
-                true_scores_df = compute_all_scores(
-                    df_disc, feature_names, "Y_pred",
-                    EIGHT_VAR_TRUE_GRAPH, col_names
-                )
-                true_scores = dict(zip(
-                    true_scores_df["feature"], true_scores_df["maxNesuf"]
-                ))
-
-                # Run causal discovery
-                data_array = df_disc[col_names].values.astype(float)
-                try:
-                    est_adj = method_fn(data_array, prior=prior, target_idx=target_idx)
-                except Exception as e:
-                    print(f"  Trial {trial}: {method_name} failed ({e}), skipping")
-                    continue
-
-                # Compute ESTIMATED Nesuf using discovered graph
-                est_scores_df = compute_all_scores(
-                    df_disc, feature_names, "Y_pred",
-                    est_adj, col_names
-                )
-                est_scores = dict(zip(
-                    est_scores_df["feature"], est_scores_df["maxNesuf"]
-                ))
-
-                # Evaluate
-                mae, spr = evaluate_trial(true_scores, est_scores, feature_names)
-                trial_results.append((mae, spr))
-
-            if trial_results:
-                agg = aggregate_trials(trial_results)
-                agg["method"] = method_name
-                agg["prior"] = prior
-                all_results.append(agg)
-                print(f"  {format_result(agg)}")
-
-    # Also compute "No graph" baseline (P(Y|do(X)) = P(Y|X))
-    print("\n--- No graph (baseline) ---")
-    no_graph_trials = []
-    no_graph_adj = np.zeros_like(EIGHT_VAR_TRUE_GRAPH)
-
-    for trial in tqdm(range(n_trials), desc="No graph"):
-        df = generate_8var_data(n_samples, func_type=func_type,
-                                distribution=distribution, mixed=mixed)
-        df_disc = discretize_dataframe(df, target_col="Y", n_bins=n_bins)
-
-        from catboost import CatBoostClassifier
-        features = df_disc[feature_names]
-        target = df_disc["Y"]
-        model = CatBoostClassifier(iterations=200, depth=6, verbose=0)
-        model.fit(features, target)
-        df_disc["Y_pred"] = model.predict(features).flatten()
-
-        true_scores_df = compute_all_scores(
-            df_disc, feature_names, "Y_pred",
-            EIGHT_VAR_TRUE_GRAPH, col_names
-        )
-        true_scores = dict(zip(true_scores_df["feature"], true_scores_df["maxNesuf"]))
-
-        est_scores_df = compute_all_scores(
-            df_disc, feature_names, "Y_pred",
-            no_graph_adj, col_names
-        )
-        est_scores = dict(zip(est_scores_df["feature"], est_scores_df["maxNesuf"]))
-
-        mae, spr = evaluate_trial(true_scores, est_scores, feature_names)
-        no_graph_trials.append((mae, spr))
-
-    agg = aggregate_trials(no_graph_trials)
-    agg["method"] = "No graph"
-    agg["prior"] = "-"
-    all_results.append(agg)
-    print(f"  {format_result(agg)}")
-
-    return pd.DataFrame(all_results)
-
-
-def run_investment_pipeline(df, feature_cols, target_col, n_bins=10,
-                            methods=None, priors=None):
-    """
-    Run the causal XAI pipeline on real investment data.
-    Single run (no trials needed since data is fixed).
-
-    Returns:
-        results: dict with causal graph, LEWIS scores, reversal probabilities
-    """
-    from .discretization import discretize_dataframe
-    from .lewis import compute_all_scores, compute_all_reversal_scores
-    from .visualization import plot_causal_graph, plot_nesuf_comparison, plot_reversal_probabilities
-
-    if methods is None:
-        methods = ["DirectLiNGAM"]
-    if priors is None:
-        priors = ["b"]
-
-    col_names = feature_cols + [target_col]
-
-    # Discretize
-    df_disc = discretize_dataframe(
-        df[col_names], target_col=target_col, n_bins=n_bins, method="equal_freq"
-    )
-
-    # Train classifier
+    import json
+    import numpy as np
+    import pandas as pd
     from catboost import CatBoostClassifier
-    features = df_disc[feature_cols]
-    target = df_disc[target_col]
-    model = CatBoostClassifier(iterations=300, depth=6, verbose=0)
-    model.fit(features, target)
-    df_disc["Y_pred"] = model.predict(features).flatten()
 
-    accuracy = (df_disc["Y_pred"] == df_disc[target_col]).mean()
-    print(f"Classifier accuracy: {accuracy:.4f}")
+    feature_cols = ["volatility", "momentum", "volume_avg", "rsi_14",
+                    "max_drawdown", "vix", "eur_usd"]
+    min_step = min(steps_to_run)
 
-    results = {}
+    # If skipping steps 1-4, load train/test from disk
+    if min_step >= 5:
+        train_path = PROJECT_ROOT / "data" / "processed" / "train.csv"
+        test_path = PROJECT_ROOT / "data" / "processed" / "test.csv"
+        if train_path.exists() and test_path.exists():
+            state["train"] = pd.read_csv(train_path, index_col=0, parse_dates=True)
+            state["test"] = pd.read_csv(test_path, index_col=0, parse_dates=True)
+            state["feature_cols"] = [c for c in feature_cols if c in state["train"].columns]
+            logger.info(f"Pre-loaded train ({len(state['train'])}) and test ({len(state['test'])}) from disk")
 
-    for method_name in methods:
-        method_fn = METHODS[method_name]
-        supported_priors = METHOD_PRIORS.get(method_name, ["0"])
+    # If skipping step 5, load model + SHAP from disk
+    if min_step >= 6:
+        model_path = PROJECT_ROOT / "models" / "catboost_best.cbm"
+        if model_path.exists():
+            model = CatBoostClassifier()
+            model.load_model(str(model_path))
+            state["model"] = model
+            logger.info("Pre-loaded CatBoost model from disk")
 
-        for prior in priors:
-            if prior not in supported_priors:
-                continue
+            if "test" in state and "feature_cols" in state:
+                X_test = state["test"][state["feature_cols"]]
+                state["X_test"] = X_test
+                state["X_train"] = state["train"][state["feature_cols"]]
+                y_pred = model.predict(X_test).flatten().astype(int)
+                state["y_pred"] = y_pred
+                state["y_test"] = state["test"]["label"].values if "label" in state["test"].columns else None
 
-            key = f"{method_name}({prior})"
-            print(f"\nRunning {key}...")
-
-            # Causal discovery
-            target_idx = col_names.index(target_col)
-            data_array = df_disc[col_names].values.astype(float)
-            est_adj = method_fn(data_array, prior=prior, target_idx=target_idx)
-
-            # LEWIS scores with causal graph
-            scores_causal = compute_all_scores(
-                df_disc, feature_cols, "Y_pred", est_adj, col_names
-            )
-
-            # LEWIS scores without causal graph (baseline)
-            no_graph_adj = np.zeros_like(est_adj)
-            scores_no_graph = compute_all_scores(
-                df_disc, feature_cols, "Y_pred", no_graph_adj, col_names
-            )
-
-            # Reversal probabilities
-            reversal = compute_all_reversal_scores(
-                df_disc, feature_cols, "Y_pred", est_adj, col_names
-            )
-
-            results[key] = {
-                "adj_matrix": est_adj,
-                "scores_causal": scores_causal,
-                "scores_no_graph": scores_no_graph,
-                "reversal": reversal,
-                "model": model,
-                "accuracy": accuracy,
+        meta_path = PROJECT_ROOT / "models" / "metadata.json"
+        if meta_path.exists():
+            with open(meta_path) as f:
+                meta = json.load(f)
+            state["metrics"] = {
+                "accuracy": meta.get("test_accuracy"),
+                "cohen_kappa": meta.get("cohen_kappa"),
             }
 
-            print(f"\nNesuf scores ({key}):")
-            print(scores_causal[["feature", "maxNesuf"]].to_string(index=False))
+        shap_path = PROJECT_ROOT / "results" / "tables" / "shap_scores.csv"
+        if shap_path.exists():
+            state["shap_importance"] = pd.read_csv(shap_path)
 
-    return results
+    # If skipping step 6, load adjacency matrix from disk
+    if min_step >= 7:
+        adj_path = PROJECT_ROOT / "models" / "adj_matrix_directlingam.npy"
+        if adj_path.exists():
+            state["adj_matrix"] = np.load(adj_path)
+            state["col_names"] = feature_cols + ["label"]
+            logger.info("Pre-loaded adjacency matrix from disk")
+
+        agree_path = PROJECT_ROOT / "results" / "tables" / "causal_method_agreement.csv"
+        if agree_path.exists():
+            agree_df = pd.read_csv(agree_path)
+            agreed = (agree_df["agreement"] == "both").sum() if "agreement" in agree_df.columns else 0
+            total = len(agree_df)
+            state["agreement"] = {"agreed": agreed, "agreement_rate": agreed / total if total else 0}
+
+    # If skipping step 7, load LEWIS scores from disk
+    if min_step >= 8:
+        lc_path = PROJECT_ROOT / "results" / "tables" / "lewis_scores_causal.csv"
+        lng_path = PROJECT_ROOT / "results" / "tables" / "lewis_scores_no_graph.csv"
+        if lc_path.exists():
+            state["lewis_causal"] = pd.read_csv(lc_path)
+        if lng_path.exists():
+            state["lewis_no_graph"] = pd.read_csv(lng_path)
+
+
+def run_pipeline(steps_to_run):
+    """
+    Execute pipeline steps in order, passing results between steps.
+
+    Args:
+        steps_to_run: List of step numbers to execute.
+    """
+    start_time = time.time()
+    logger.info("=" * 70)
+    logger.info("MASTER THESIS PIPELINE - Causal XAI for Investment Decisions")
+    logger.info("DAX 40 | Daily | 3-month train / 1-month test | Buy/Hold/Sell")
+    logger.info("=" * 70)
+
+    # Shared state between steps — pre-load from disk if skipping early steps
+    state = {}
+    _preload_state(state, steps_to_run)
+
+    for step_num in sorted(steps_to_run):
+        if step_num not in STEPS:
+            logger.warning(f"Unknown step {step_num}, skipping")
+            continue
+
+        step_name, module_name = STEPS[step_num]
+        logger.info(f"\n{'='*60}")
+        logger.info(f">>> STEP {step_num}: {step_name}")
+        logger.info(f"{'='*60}")
+
+        step_start = time.time()
+        try:
+            mod = load_step(module_name)
+
+            if step_num == 1:
+                result = mod.run()
+                state["stock_data"] = result["stock_data"]
+                state["macro_data"] = result["macro_data"]
+
+            elif step_num == 2:
+                result = mod.run(state["stock_data"], state["macro_data"])
+                state["all_features"] = result
+
+            elif step_num == 3:
+                result = mod.run(state["all_features"], state["stock_data"])
+                state["dataset"] = result
+
+            elif step_num == 4:
+                result = mod.run(state["dataset"])
+                state["train"] = result["train"]
+                state["test"] = result["test"]
+                state["feature_cols"] = result["feature_cols"]
+
+            elif step_num == 5:
+                result = mod.run(state["train"], state["test"],
+                                 state.get("feature_cols"))
+                state["model"] = result["model"]
+                state["y_pred"] = result["y_pred"]
+                state["y_test"] = result["y_test"]
+                state["metrics"] = result["metrics"]
+                state["baseline_metrics"] = result.get("baseline_metrics")
+                state["shap_importance"] = result["shap_importance"]
+                state["shap_values"] = result["shap_values"]
+                state["X_test"] = result["X_test"]
+                state["X_train"] = result["X_train"]
+                state["feature_cols"] = result["feature_cols"]
+
+            elif step_num == 6:
+                result = mod.run(state["train"], state.get("feature_cols"))
+                state["adj_matrix"] = result["adj_matrix"]
+                state["col_names"] = result["col_names"]
+                state["agreement"] = result["agreement"]
+
+            elif step_num == 7:
+                result = mod.run(
+                    state["train"], state["test"], state["model"],
+                    state["adj_matrix"], state["col_names"],
+                    state.get("feature_cols"),
+                )
+                state["lewis_causal"] = result["causal_scores"]
+                state["lewis_no_graph"] = result["no_graph_scores"]
+
+            elif step_num == 8:
+                y_prob = None
+                if state.get("model") is not None and state.get("X_test") is not None:
+                    y_prob = state["model"].predict_proba(state["X_test"])
+                result = mod.run(
+                    state["y_test"], state["y_pred"], y_prob,
+                    state["lewis_causal"], state["lewis_no_graph"],
+                    state.get("feature_cols", []),
+                )
+
+            elif step_num == 9:
+                result = mod.run(
+                    state["shap_importance"], state["lewis_causal"],
+                    state["lewis_no_graph"],
+                )
+
+            elif step_num == 10:
+                result = mod.run({
+                    "metrics": state.get("metrics", {}),
+                    "agreement": state.get("agreement", {}),
+                })
+
+            elapsed = time.time() - step_start
+            logger.info(f"<<< Step {step_num} completed in {elapsed:.1f}s")
+
+        except Exception as e:
+            elapsed = time.time() - step_start
+            logger.error(f"!!! Step {step_num} FAILED after {elapsed:.1f}s: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            logger.info("Continuing to next step...")
+
+    total_time = time.time() - start_time
+    logger.info(f"\n{'='*70}")
+    logger.info(f"PIPELINE COMPLETE - Total time: {total_time:.1f}s ({total_time/60:.1f} min)")
+    logger.info(f"{'='*70}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Master Thesis Pipeline Runner")
+    parser.add_argument("--steps", type=str, default="all",
+                        help="Steps to run: 'all' or comma-separated (e.g., '1,2,3')")
+    args = parser.parse_args()
+
+    if args.steps == "all":
+        steps = list(range(1, 11))
+    else:
+        steps = [int(s.strip()) for s in args.steps.split(",")]
+
+    run_pipeline(steps)
+
+
+if __name__ == "__main__":
+    main()

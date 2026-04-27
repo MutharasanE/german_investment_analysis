@@ -9,305 +9,214 @@ This project implements a causal XAI framework that explains black-box AI invest
 ### What it does
 
 ```
-Investment Data → Black-box Model (CatBoost) → Causal Graph (DAG) → LEWIS Scores → Explanation
+DAX 40 + S&P 500 Daily Data → Logistic Regression (Baseline) + CatBoost (Main)
+  → Causal Graph (DAG) → LEWIS Scores → Explanation
 ```
 
-1. **Trains a classifier** (CatBoost) to approve/reject investments
-2. **Discovers causal structure** between features using PC, DirectLiNGAM, NOTEARS algorithms
-3. **Computes counterfactual explanations** via LEWIS scores:
+1. **Downloads real market data** — DAX 40 + S&P 500 (top 50) daily prices + macro indicators (VIX, EUR/USD)
+2. **Engineers features** — volatility, momentum, volume, RSI, max drawdown + macro
+3. **Labels** Buy/Hold/Sell from real 5-day forward returns
+4. **Trains two classifiers** — Logistic Regression (baseline) + CatBoost (main model, 3-class) with TimeSeriesSplit hyperparameter tuning
+5. **Discovers causal structure** between features using DirectLiNGAM + PC cross-check
+6. **Computes counterfactual explanations** via multi-class LEWIS scores (novel contribution):
    - **Nesuf** — overall feature importance (causal)
    - **Nec** — "if this feature decreased, would the decision flip?"
    - **Suf** — "if this feature increased, would the decision flip?"
-4. **Compares** causal explanations vs SHAP (correlation-only baseline)
+7. **Compares** causal explanations (LEWIS) vs correlational baseline (SHAP)
+8. **Evaluates** with confusion matrix, AUC-ROC, Cohen's Kappa, counterfactual validity
+9. **Maps to regulations** — EU AI Act, BaFin guidelines, MiFID II
 
 ### Why it matters
 
 - EU AI Act (Aug 2026) requires causal justification for high-risk AI
 - SHAP only shows correlation — regulators need causal "why"
 - Counterfactuals give actionable advice: "change X by Y to flip the decision"
+- **Novel contribution**: Multi-class extension of LEWIS (original paper is binary only)
 
 ## Project Structure
 
 ```
 ├── src/
-│   ├── data_generation.py    # SCM synthetic data (3-var and 8-var graphs)
-│   ├── discretization.py     # Equal-width / equal-frequency binning
-│   ├── causal_discovery.py   # PC, DirectLiNGAM, RESIT, LiM, NOTEARS wrappers
-│   ├── backdoor.py           # P(Y|do(X)) via backdoor adjustment
-│   ├── lewis.py              # LEWIS scores: Nec, Suf, Nesuf
-│   ├── evaluation.py         # MAE + Spearman rank correlation
-│   ├── visualization.py      # Causal graph + bar chart plots
-│   ├── data_loader.py        # DAX + macro data (ECB, VIX) via yfinance & ECB API
-│   └── pipeline.py           # Main experiment orchestration
-├── run_experiments.py        # Reproduce Takahashi et al. paper results
-├── run_investment.py         # Run on real DAX investment data
-├── run_shap_comparison.py    # LEWIS vs SHAP comparison (uses saved artifacts)
-├── app.py                    # Streamlit demo + expert survey
-├── models/                   # Saved CatBoost model, adj matrix, metadata
-├── data/                     # Downloaded raw data + survey database
-│   └── survey.db             # SQLite — expert votes (created by Streamlit app)
+│   ├── 01_data_download.py      # Step 1: Download DAX 40 + S&P 500 daily + macro data
+│   ├── 02_feature_engineering.py # Step 2: Compute 7 features per ticker per date
+│   ├── 03_labeling.py           # Step 3: Buy/Hold/Sell from 5-day forward returns
+│   ├── 04_data_preparation.py   # Step 4: Cleaning, stationarity, scaling, temporal split
+│   ├── 05_baseline_model.py     # Step 5: LogReg baseline + CatBoost + SHAP + confusion matrices
+│   ├── 06_causal_discovery.py   # Step 6: DirectLiNGAM + PC cross-check + bootstrap
+│   ├── 07_lewis_scores.py       # Step 7: Multi-class LEWIS Nec/Suf/Nesuf scores
+│   ├── 08_evaluation.py         # Step 8: Full evaluation framework
+│   ├── 09_comparison.py         # Step 9: SHAP vs LEWIS comparison
+│   ├── 10_governance.py         # Step 10: Regulatory compliance report
+│   ├── pipeline.py              # Master runner: executes all steps in order
+│   ├── backdoor.py              # P(Y|do(X)) via backdoor adjustment
+│   └── __init__.py              # Package marker
+├── app.py                       # Streamlit demo + expert survey
+├── data/
+│   ├── raw/                     # Downloaded prices + macro CSVs
+│   └── processed/               # Train/test splits after preprocessing
+├── models/                      # Saved CatBoost model, adj matrix, scaler, metadata
 ├── results/
-│   ├── experiments/          # Paper validation (synthetic data)
-│   └── investment/           # Real DAX results (plots, scores)
-├── notebooks/                # Jupyter notebooks for exploration
-├── tests/                    # Unit tests
-├── docs/                     # Thesis documents
-└── pyproject.toml            # Dependencies
+│   ├── plots/                   # All visualizations (causal graph, confusion matrix, etc.)
+│   ├── tables/                  # CSV exports of all metrics and scores
+│   └── reports/                 # Regulatory compliance report, disagreement analysis
+├── notebooks/                   # Jupyter notebooks for exploration
+├── requirements.txt             # Dependencies
+└── runtime.txt                  # Python version
 ```
 
-## Local Setup (Start to End)
+## Local Setup
 
 ### Prerequisites
 
 ```bash
 # macOS
 brew install python@3.11
-brew install libomp        # Required for XGBoost/CatBoost
+brew install libomp        # Required for CatBoost
 ```
 
-### Step 1: Create virtual environment and install dependencies
+### Step 1: Create virtual environment
 
 ```bash
 python3.11 -m venv venv
 source venv/bin/activate
-pip install -e ".[dev,data]"
-pip install streamlit shap gspread google-auth
+pip install -r requirements.txt
+pip install streamlit
 ```
 
 ### Step 2: Patch causal-learn BIC score bug
-
-`causal-learn==0.1.4.5` has a bug in `LocalScoreFunction.py` where `float()` fails on numpy matrix results, breaking GES, NOTEARS, and NOTEARS-MLP. Apply this one-line fix:
 
 ```bash
 sed -i '' 's/sigma = float(cov\[i, i\] - yX @ XX_inv @ yX.T)/sigma = np.asarray(cov[i, i] - yX @ XX_inv @ yX.T).item()/g' \
   venv/lib/python3.11/site-packages/causallearn/score/LocalScoreFunction.py
 ```
 
-Note: NOTEARS-MLP (nonlinear) module doesn't exist in causal-learn 0.1.4.x, so `run_notears_mlp()` uses GES with BIC scoring instead.
-
-### Step 3: Run experiments (validates methodology on synthetic data)
+### Step 3: Run the full pipeline
 
 ```bash
-# Quick test (10 trials, ~2 min)
-python run_experiments.py --experiment 3var --trials 10
+# Run all 10 steps (~15-25 min total)
+python src/pipeline.py --steps all
 
-# Full experiments (100 trials, ~3-5 hours)
-python run_experiments.py --experiment all --trials 100 --parallel
-
-# Adjust workers if needed (default: 4)
-python run_experiments.py --experiment all --trials 100 --parallel --workers 2
+# Or run specific steps
+python src/pipeline.py --steps 1,2,3      # Data download + features + labeling
+python src/pipeline.py --steps 4,5         # Prep + model training
+python src/pipeline.py --steps 6,7,8,9,10  # Causal discovery + LEWIS + evaluation
 ```
 
-Output: `results/experiments/` (6 CSV/JSON files)
-
-### Step 4: Run investment pipeline (real DAX data)
-
-Downloads stock + macro data, trains model, computes LEWIS scores, saves all artifacts.
-
-```bash
-python run_investment.py
-```
-
-Output: `data/` (raw CSVs), `models/` (CatBoost model, adjacency matrix), `results/investment/` (plots, scores)
-
-**Steps 3 and 4 can run in parallel** (separate terminal tabs) — they are independent.
-
-### Step 5: Run SHAP comparison
-
-Requires step 4. Loads saved model, computes SHAP values, generates side-by-side plots.
-
-```bash
-python run_shap_comparison.py
-```
-
-Output: `results/investment/lewis_vs_shap_*.png`, `results/investment/shap_scores_*.csv`
-
-### Step 6: Launch Streamlit demo
+### Step 4: Launch Streamlit demo
 
 ```bash
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. Experts can view explanations and vote on LEWIS vs SHAP. Votes are saved to `data/survey.db` (SQLite).
+## Pipeline Steps & Time Estimates
 
-### Quick Start (TL;DR)
+| Step | Module | What it does | Est. time |
+|------|--------|-------------|-----------|
+| 1 | `01_data_download.py` | Download DAX 40 + S&P 500 daily OHLCV + VIX, EUR/USD | ~3 min |
+| 2 | `02_feature_engineering.py` | Compute volatility, momentum, volume, RSI, drawdown | ~10 sec |
+| 3 | `03_labeling.py` | Buy/Hold/Sell from 5-day forward returns | ~5 sec |
+| 4 | `04_data_preparation.py` | ADF stationarity, winsorization, scaling, temporal split | ~10 sec |
+| 5 | `05_baseline_model.py` | Logistic Regression baseline + CatBoost grid search (108 combos x 5-fold) + SHAP | ~15-20 min |
+| 6 | `06_causal_discovery.py` | DirectLiNGAM + PC + 30-run bootstrap stability | ~1 min |
+| 7 | `07_lewis_scores.py` | Multi-class LEWIS (pairwise decomposition) | ~2-3 min |
+| 8 | `08_evaluation.py` | ML metrics, AUC-ROC/PR, counterfactual validity | ~30 sec |
+| 9 | `09_comparison.py` | SHAP vs LEWIS ranking comparison + Spearman | ~10 sec |
+| 10 | `10_governance.py` | EU AI Act / BaFin / MiFID II compliance report | ~5 sec |
 
-```bash
-# One-time setup
-python3.11 -m venv venv && source venv/bin/activate
-pip install -e ".[dev,data]" && pip install streamlit shap
-# Apply causal-learn patch (see Step 2)
+**Total: ~20-25 min**
 
-# Run everything
-python run_experiments.py --experiment all --trials 100 --parallel  # Tab 1 (~3-5 hrs)
-python run_investment.py                                             # Tab 2 (~2 min)
-python run_shap_comparison.py                                        # After investment
-streamlit run app.py                                                 # Launch demo
-```
-
-### 5. Output
-
-```
-data/
-├── SAP_DE.csv, SIE_DE.csv, ...    # Raw stock price data per ticker
-└── investment_dataset.csv          # Full dataset (9 features + target, 960 rows)
-
-models/                             # Saved artifacts for Streamlit & SHAP
-├── catboost_*.cbm                  # Trained CatBoost classifier
-├── adj_matrix_*.npy                # Discovered causal graph (adjacency matrix)
-└── metadata_*.json                 # Feature list, accuracy, run config
-
-results/
-├── experiments/                    # Paper validation (synthetic data)
-│   ├── 3var_linear.json            # Tables II-III reproduction
-│   ├── 3var_nonlinear.json
-│   └── 8var_*.csv                  # Tables V-X reproduction
-└── investment/                     # Real DAX results
-    ├── causal_graph_*.png          # Discovered DAG visualizations
-    ├── nesuf_comparison_*.png      # Causal vs No-graph importance
-    ├── reversal_*.png              # Nec/Suf reversal probability charts
-    ├── lewis_scores_*.csv          # LEWIS Nesuf/Nec/Suf per feature
-    ├── lewis_scores_no_graph_*.csv # Baseline (no causal graph) scores
-    └── reversal_scores_*.csv       # Reversal probability scores
-```
-
-### 6. Saved Artifacts (for SHAP & Streamlit)
-
-`run_investment.py` saves all artifacts needed for downstream tasks:
-
-| Artifact | Path | Used by |
-|----------|------|---------|
-| CatBoost model | `models/catboost_*.cbm` | SHAP computation, Streamlit demo |
-| Adjacency matrix | `models/adj_matrix_*.npy` | Streamlit causal graph display |
-| Metadata | `models/metadata_*.json` | Feature names, accuracy, config |
-| LEWIS scores | `results/investment/lewis_scores_*.csv` | SHAP vs LEWIS comparison |
-| Dataset | `data/investment_dataset.csv` | SHAP computation, Streamlit demo |
-
-To load in Python:
-```python
-from catboost import CatBoostClassifier
-import numpy as np, json
-
-model = CatBoostClassifier().load_model("models/catboost_DirectLiNGAM(b).cbm")
-adj = np.load("models/adj_matrix_DirectLiNGAM(b).npy")
-meta = json.load(open("models/metadata_DirectLiNGAM(b).json"))
-```
-
-## Data Sources
+## Data
 
 ### Stock Data
-- **Source**: Yahoo Finance (yfinance) — 20 DAX companies, 5 years monthly OHLCV
-- **Features**: volatility, momentum, volume_avg, return_1y, max_drawdown
+- **Source**: Yahoo Finance (yfinance) — DAX 40 + S&P 500 (top 50 by market cap), daily OHLCV
+- **Period**: ~4 months effective (with lookback buffer for rolling features)
+- **Split**: 3 months train (Dec 2025 -- Feb 2026), 1 month test (Mar 2026)
 
-### Macroeconomic Data (all free, no API key)
-| Feature | Source | Description |
-|---------|--------|-------------|
-| `ecb_rate` | ECB Data API | ECB main refinancing rate (%) |
-| `eur_usd` | ECB Data API | EUR/USD exchange rate |
-| `de_inflation` | ECB Data API | German HICP year-over-year (%) |
-| `vix` | Yahoo Finance | CBOE VIX index (VSTOXX proxy) |
+### Features (7 total)
+
+| Feature | Type | Description |
+|---------|------|-------------|
+| `volatility` | Stock | 20-day rolling std of log returns (annualized) |
+| `momentum` | Stock | 21-day return |
+| `volume_avg` | Stock | 20-day average volume (log-scaled) |
+| `rsi_14` | Stock | 14-day Relative Strength Index |
+| `max_drawdown` | Stock | 20-day max peak-to-trough drop |
+| `vix` | Macro | CBOE VIX index (market fear) |
+| `eur_usd` | Macro | EUR/USD exchange rate |
 
 ### Target Variable
-- `investment_decision` (binary): 1 = APPROVE, 0 = REJECT
-- Defined as: risk-adjusted return (return_1y / volatility) > 0.5
+- `label` (3-class): Buy=2, Hold=1, Sell=0
+- Derived from 5-day forward return with distribution-based thresholds (mean ± 0.5 std)
 
 ## Key Methods
 
-| Method | Type | Assumptions |
-|--------|------|-------------|
-| PC | Constraint-based | Conditional independence |
-| DirectLiNGAM | Score-based | Linear, non-Gaussian errors |
-| RESIT | Score-based | Nonlinear, additive noise |
-| LiM | Score-based | Linear, mixed data |
-| NOTEARS | Optimization | Continuous, equal variance |
-| NOTEARS-MLP | Optimization | Nonlinear (uses GES with BIC) |
+| Method | Type | Role |
+|--------|------|------|
+| Logistic Regression | ML Classifier | Baseline model |
+| CatBoost | ML Classifier | Main model — 3-class Buy/Hold/Sell prediction |
+| DirectLiNGAM | Causal Discovery | Primary method (linear, non-Gaussian) |
+| PC Algorithm | Causal Discovery | Cross-check / validation |
+| LEWIS (multi-class) | Counterfactual XAI | Causal feature importance (Nec, Suf, Nesuf) |
+| SHAP | Correlational XAI | Baseline comparison (TreeExplainer) |
 
-## Prior Information on Causal Structure
+## Output Artifacts
 
-| Prior | Description | Effect |
-|-------|-------------|--------|
-| (0) | No prior | Causal discovery runs blind |
-| (a) | All features → target | Forces direct edges to target |
-| (b) | Target is sink | Prevents reverse causation |
+```
+data/
+├── raw/prices_{ticker}.csv         # Raw daily OHLCV per ticker
+├── raw/macro_data.csv              # VIX + EUR/USD daily
+├── raw/labeled_dataset.csv         # Full dataset with labels
+└── processed/train.csv, test.csv   # Preprocessed train/test splits
 
-## Known Issues
+models/
+├── logistic_baseline.pkl            # Trained Logistic Regression baseline
+├── catboost_best.cbm               # Trained CatBoost model (best hyperparams)
+├── adj_matrix_directlingam.npy     # Discovered causal graph
+├── scaler.pkl                      # StandardScaler fitted on train data
+└── metadata.json                   # Feature names, accuracy, config, model comparison
 
-- **numpy "Mean of empty slice" warnings**: Suppressed in `pipeline.py`. Occurs when rare feature-value combinations have zero observations during backdoor probability computation. Results are unaffected (NaN values are skipped).
-- **RESIT requires regressor**: Uses `GradientBoostingRegressor` as the nonlinear regressor (causal-learn 0.1.4.x requires this argument explicitly).
-
-## 8-Week Timeline
-
-| Week | Phase | What to run |
-|------|-------|-------------|
-| 1-2 | Model Development | `run_experiments.py` — reproduce paper |
-| 3 | Investment Data | `run_investment.py` |
-| 4 | SHAP Comparison | Add SHAP baseline, generate LEWIS vs SHAP comparison plots |
-| 5 | User Validation | Streamlit demo with A/B survey (LEWIS vs SHAP) |
-| 6 | Literature Review | Write chapters 1-3 |
-| 7 | Thesis Writing | Write chapters 4-6 |
-| 8 | Finalize | Polish, submit |
-
-## SHAP Comparison (Week 4)
-
-SHAP serves as the **correlational baseline** against LEWIS (causal). Both run on the same CatBoost model, same data — the only difference is whether causal structure is used.
-
-| Method | Type | How it ranks features |
-|--------|------|----------------------|
-| **LEWIS** | Causal | Uses discovered DAG + backdoor adjustment for P(Y\|do(X)) |
-| **SHAP** | Correlational | Uses Shapley values — marginal contribution regardless of causation |
-
-### What to expect
-- SHAP will rank features by **predictive power** (correlation with outcome)
-- LEWIS will rank features by **causal influence** (would changing this feature change the decision?)
-- Features like `ecb_rate` may rank high in LEWIS (upstream cause) but lower in SHAP (indirect predictor)
-- Features like `momentum` may rank high in SHAP (strong predictor) but lower in LEWIS (no direct causal path)
-
-### Implementation
-Uses saved artifacts from `run_investment.py` — no need to retrain:
-```python
-import shap
-model = CatBoostClassifier().load_model("models/catboost_DirectLiNGAM(b).cbm")
-explainer = shap.TreeExplainer(model)
-shap_values = explainer.shap_values(X)
+results/
+├── plots/
+│   ├── confusion_matrix.png        # CatBoost confusion matrix heatmap
+│   ├── confusion_matrix_baseline.png  # Logistic Regression confusion matrix
+│   ├── causal_graph_directlingam.png
+│   ├── shap_summary_plot.png       # SHAP beeswarm plot
+│   ├── shap_bar_plot.png           # SHAP mean importance
+│   ├── shap_vs_lewis_comparison.png
+│   ├── reversal_probabilities.png  # Nec vs Suf per feature
+│   ├── dag_stability_heatmap.png   # Bootstrap edge stability
+│   ├── auc_roc.png                 # ROC curves per class
+│   └── auc_pr.png                  # Precision-recall curves
+├── tables/
+│   ├── label_distribution.csv
+│   ├── stationarity_report.csv
+│   ├── classification_report.csv        # CatBoost
+│   ├── classification_report_baseline.csv  # Logistic Regression
+│   ├── model_comparison.csv            # Side-by-side metric comparison
+│   ├── hyperparameter_tuning_results.csv
+│   ├── shap_scores.csv
+│   ├── lewis_scores_causal.csv     # LEWIS with causal graph
+│   ├── lewis_scores_no_graph.csv   # LEWIS without graph (baseline)
+│   ├── reversal_scores.csv
+│   ├── causal_method_agreement.csv # DirectLiNGAM vs PC edge agreement
+│   ├── dag_stability_scores.csv
+│   ├── dag_evaluation_metrics.csv
+│   ├── shap_vs_lewis_comparison.csv
+│   ├── ml_metrics.csv
+│   └── counterfactual_validity_report.csv
+└── reports/
+    ├── regulatory_compliance_report.json
+    ├── regulatory_compliance_report.md
+    └── key_disagreements.txt
 ```
 
-Output: side-by-side LEWIS vs SHAP ranking bar chart saved to `results/investment/lewis_vs_shap_*.png`
+## Known Limitations (document in thesis)
 
-## Streamlit Demo & Expert Survey (Week 5)
-
-Interactive web app (`streamlit run app.py`) for thesis defense and expert validation.
-
-### App Features
-1. **Select a DAX company** — see the AI's approve/reject decision
-2. **View causal graph** — discovered DAG between features
-3. **LEWIS explanations** — causal feature importance with Nesuf, Nec, Suf scores
-4. **SHAP explanations** — correlational feature importance (baseline)
-5. **Side-by-side comparison** — LEWIS vs SHAP rankings on the same decision
-
-### Expert Voting System
-The app includes a built-in survey with a **SQLite database** (`data/survey.db`) to collect and persist expert preferences:
-
-- **Per-decision vote**: For each investment decision, the expert selects "LEWIS" or "SHAP" as the more trustworthy explanation
-- **Reasoning**: Free-text field — "why did you prefer this explanation?"
-- **Expert profile**: Role (e.g., risk analyst, portfolio manager, compliance officer), years of experience
-- **Aggregated dashboard**: 
-  - Total votes: LEWIS vs SHAP (bar chart + percentage)
-  - Votes by expert role (do compliance officers prefer causal explanations?)
-  - Votes by company/decision (are causal explanations preferred more for certain types of decisions?)
-  - Export to CSV for thesis analysis
-
-### Survey Database Schema
-```
-survey.db
-└── votes (id, expert_name, expert_role, experience_years, ticker,
-           decision, preference, comment, timestamp)
-```
-
-### Why This Matters for the Thesis
-- Provides **qualitative evidence** from domain experts (Chapter 5 — User Study)
-- Bridges the gap between technical metrics (MAE, Spearman) and practical trust
-- Key hypothesis: experts in regulated roles (compliance, risk) prefer causal (LEWIS) explanations because they align with EU AI Act requirements for causal justification
-- Target: 10-15 expert responses (sufficient for exploratory qualitative study in a management thesis)
+1. **DirectLiNGAM assumes linear non-Gaussian relationships** — financial data may violate this in nonlinear regimes
+2. **DAG may be unstable during structural breaks** — bootstrap stability analysis documents which edges are reliable
+3. **Multi-class LEWIS extension is novel** — no peer-reviewed validation exists yet (this IS the thesis contribution)
+4. **Short data window (4 months daily)** — limits regime diversity; justified by keeping training time manageable
+5. **Expert survey sample size** — document minimum required for statistical significance
 
 ## References
 
