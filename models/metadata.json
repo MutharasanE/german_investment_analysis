@@ -1,0 +1,32 @@
+{
+  "feature_cols": [
+    "volatility",
+    "momentum",
+    "volume_avg",
+    "rsi_14",
+    "max_drawdown",
+    "vix",
+    "eur_usd"
+  ],
+  "best_params": {
+    "iterations": 500,
+    "learning_rate": 0.1,
+    "depth": 4,
+    "l2_leaf_reg": 5,
+    "bagging_temperature": 0.5
+  },
+  "cv_accuracy": 0.4763513513513513,
+  "test_accuracy": 0.4152,
+  "cohen_kappa": 0.0421,
+  "matthews_corrcoef": 0.0641,
+  "n_train": 5330,
+  "n_test": 1898,
+  "baseline": {
+    "model": "LogisticRegression",
+    "best_C": 0.01,
+    "cv_accuracy": 0.4426,
+    "test_accuracy": 0.4162,
+    "cohen_kappa": 0.0413,
+    "matthews_corrcoef": 0.0551
+  }
+}

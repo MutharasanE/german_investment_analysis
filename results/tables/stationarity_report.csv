@@ -1,0 +1,8 @@
+feature,adf_stat,p_value,stationary,action
+volatility,-17.107,0.0,yes,none
+momentum,-23.2302,0.0,yes,none
+volume_avg,-4.7435,0.0001,yes,none
+rsi_14,-31.6734,0.0,yes,none
+max_drawdown,-17.9351,0.0,yes,none
+vix,-18.984,0.0,yes,none
+eur_usd,-25.6287,0.0,yes,none
