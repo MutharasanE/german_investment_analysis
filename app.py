@@ -290,33 +290,21 @@ def render_survey_tab(artifacts, meta, feature_cols, model, test_df,
 
             st.subheader(f"{TICKER_NAMES.get(selected_ticker, selected_ticker)} ({selected_ticker})")
 
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3 = st.columns(3)
             c1.metric("AI Recommendation", LABEL_NAMES[pred_label])
             c2.metric("Actual Outcome", LABEL_NAMES[true_label])
-            c3.metric("Confidence", f"{probs[pred_label]*100:.1f}%")
-            c4.metric("Test Days", f"{len(ticker_info['y_pred'])}")
-
-            # Probability bar
-            fig_prob, ax_prob = plt.subplots(figsize=(6, 2))
-            colors = [LABEL_COLORS[i] for i in range(3)]
-            ax_prob.barh(LABEL_NAMES, [probs[i] for i in range(3)], color=colors)
-            ax_prob.set_xlim(0, 1)
-            ax_prob.set_xlabel("Probability")
-            ax_prob.set_title(f"Model confidence for {selected_ticker}")
-            plt.tight_layout()
-            st.pyplot(fig_prob)
-            plt.close()
+            c3.metric("Test Days", f"{len(ticker_info['y_pred'])}")
 
             st.markdown("---")
 
-            # --- Side by side: SHAP vs LEWIS ---
+            # --- Side by side: Explanation 1 vs Explanation 2 ---
             st.subheader("Why did the AI decide this? Two competing explanations:")
-            shap_col, lewis_col = st.columns(2)
+            col_e1, col_e2 = st.columns(2)
 
-            with shap_col:
-                st.markdown("### SHAP (Statistical Explanation)")
+            with col_e1:
+                st.markdown("### Explanation 1")
                 st.markdown(
-                    "Think of SHAP like a **data analyst** looking at past patterns: "
+                    "Think of this like a **data analyst** looking at past patterns: "
                     "\"*Historically, when this factor was high, the AI tended to say Buy.*\" "
                     "It shows what **predicts** the decision, but a predictor isn't always "
                     "the real cause — it could be a coincidence."
@@ -330,22 +318,22 @@ def render_survey_tab(artifacts, meta, feature_cols, model, test_df,
 
                     fig_s, ax_s = plt.subplots(figsize=(6, 4))
                     ax_s.barh(shap_df["Feature"], shap_df["Importance"], color="#3498db")
-                    ax_s.set_xlabel("Mean |SHAP value|")
-                    ax_s.set_title(f"SHAP — {selected_ticker}")
+                    ax_s.set_xlabel("Feature Importance")
+                    ax_s.set_title(f"Explanation 1 — {selected_ticker}")
                     plt.tight_layout()
                     st.pyplot(fig_s)
                     plt.close()
 
                     top_shap = shap_df.nlargest(3, "Importance")
-                    st.markdown("**Top factors (SHAP):**")
+                    st.markdown("**Top factors:**")
                     for _, row in top_shap.iterrows():
                         desc = FEATURE_DESCRIPTIONS.get(row["Feature"], "")
                         st.markdown(f"- **{row['Feature']}**: {desc}")
 
-            with lewis_col:
-                st.markdown("### LEWIS (Causal Explanation)")
+            with col_e2:
+                st.markdown("### Explanation 2")
                 st.markdown(
-                    "Think of LEWIS like a **risk manager** asking: "
+                    "Think of this like a **risk manager** asking: "
                     "\"*If we actually changed this factor, would the AI's recommendation "
                     "flip from Buy to Sell?*\" It identifies the **true drivers** of the "
                     "decision — the levers you could actually pull to change the outcome."
@@ -356,19 +344,19 @@ def render_survey_tab(artifacts, meta, feature_cols, model, test_df,
 
                     fig_l, ax_l = plt.subplots(figsize=(6, 4))
                     ax_l.barh(lewis_c["feature"], lewis_c["maxNesuf_avg"], color="#e67e22")
-                    ax_l.set_xlabel("Causal Importance (maxNesuf)")
-                    ax_l.set_title("LEWIS — Causal Importance")
+                    ax_l.set_xlabel("Feature Importance")
+                    ax_l.set_title(f"Explanation 2 — {selected_ticker}")
                     plt.tight_layout()
                     st.pyplot(fig_l)
                     plt.close()
 
                     top_lewis = lewis_c.nlargest(3, "maxNesuf_avg")
-                    st.markdown("**Top factors (LEWIS):**")
+                    st.markdown("**Top factors:**")
                     for _, row in top_lewis.iterrows():
                         desc = FEATURE_DESCRIPTIONS.get(row["feature"], "")
                         st.markdown(f"- **{row['feature']}**: {desc}")
                 else:
-                    st.info("LEWIS scores not available. Run pipeline Step 7.")
+                    st.info("Explanation 2 scores not available. Run pipeline Step 7.")
 
             # Key disagreements
             if "comparison" in artifacts:
@@ -377,10 +365,10 @@ def render_survey_tab(artifacts, meta, feature_cols, model, test_df,
                     biggest = comp.nlargest(2, "rank_diff")
                     if not biggest.empty:
                         st.markdown("---")
-                        st.markdown("### Where the two methods disagree")
+                        st.markdown("### Where the two explanations disagree")
                         st.markdown(
-                            "These are the factors where the statistical model and the "
-                            "causal model **tell a different story**. This matters because "
+                            "These are the factors where the two explanations "
+                            "**tell a different story**. This matters because "
                             "a factor that *looks* important statistically may actually be "
                             "a coincidence — or vice versa."
                         )
@@ -390,10 +378,10 @@ def render_survey_tab(artifacts, meta, feature_cols, model, test_df,
                             r_shap = int(row.get("rank_shap", 0))
                             r_lewis = int(row.get("rank_lewis", 0))
                             if r_shap < r_lewis:
-                                note = ("SHAP says this matters a lot, but LEWIS says "
+                                note = ("Explanation 1 says this matters a lot, but Explanation 2 says "
                                         "it's not a real cause — likely a **spurious correlation**.")
                             else:
-                                note = ("LEWIS says this is a real driver, but SHAP "
+                                note = ("Explanation 2 says this is a real driver, but Explanation 1 "
                                         "undervalues it — a **hidden causal factor**.")
                             st.markdown(
                                 f"- **{feat}** (#{r_shap} statistical vs #{r_lewis} causal) "
@@ -406,8 +394,8 @@ def render_survey_tab(artifacts, meta, feature_cols, model, test_df,
             st.markdown(
                 "The diagram below shows the **cause-and-effect relationships** our algorithm "
                 "discovered from the market data. An arrow from A to B means "
-                "\"changes in A *cause* changes in B.\" This is what powers the LEWIS "
-                "explanation above — it uses this map to trace which factors actually "
+                "\"changes in A *cause* changes in B.\" This is what powers Explanation 2 "
+                "above — it uses this map to trace which factors actually "
                 "drive the AI's Buy/Hold/Sell decision."
             )
             cg_path = RESULTS_DIR / "plots" / "causal_graph_directlingam.png"
@@ -422,16 +410,16 @@ def render_survey_tab(artifacts, meta, feature_cols, model, test_df,
     st.header("Which explanation do you trust more?")
     st.markdown(
         "As a professional in the financial industry, your judgement matters. "
-        "After reviewing how both methods explain the AI's recommendation above, "
+        "After reviewing how both explanations describe the AI's recommendation above, "
         "please tell us which one you would **trust more when making real investment "
         "decisions** or presenting to clients and regulators."
     )
 
     with st.form("vote_form", clear_on_submit=True):
         st.markdown("""
-        | | LEWIS (Causal) | SHAP (Statistical) |
+        | | Explanation 2 | Explanation 1 |
         |---|---|---|
-        | **In plain terms** | "This is *why* the AI decided — change this factor and the decision flips" | "This factor had the biggest *statistical weight* in the prediction" |
+        | **In plain terms** | "This is *why* the AI decided — change this factor and the decision flips" | "This factor had the biggest *weight* in the prediction" |
         | **Best for** | Regulatory reporting, risk management, client communication | Quick overview, internal model monitoring |
         | **Watch out** | Requires discovering cause-and-effect structure first | May flag coincidences as important drivers |
         """)
@@ -442,13 +430,13 @@ def render_survey_tab(artifacts, meta, feature_cols, model, test_df,
 
         preference = st.radio(
             "Which explanation do you find more trustworthy for investment decisions?",
-            ["LEWIS (Causal)", "SHAP (Statistical)", "No preference"],
+            ["Explanation 2", "Explanation 1", "No preference"],
             horizontal=True,
         )
 
         comment = st.text_area(
             "Please share your reasoning (optional)",
-            placeholder="e.g., 'I prefer LEWIS because it tells me what I can actually "
+            placeholder="e.g., 'I prefer Explanation 2 because it tells me what I can actually "
                        "change to influence the outcome.'",
             height=100,
         )
@@ -457,7 +445,8 @@ def render_survey_tab(artifacts, meta, feature_cols, model, test_df,
                                           width="stretch")
 
         if submitted:
-            pref_clean = preference.split(" ")[0]
+            pref_clean = "LEWIS" if preference == "Explanation 2" else (
+                "SHAP" if preference == "Explanation 1" else "No")
             save_vote(
                 expert_name=expert_name or "Anonymous",
                 expert_role=expert_role,
@@ -475,13 +464,13 @@ def render_survey_tab(artifacts, meta, feature_cols, model, test_df,
         st.subheader("Survey Results So Far")
         total = len(votes_df)
         vote_counts = votes_df["preference"].value_counts()
-        lewis_n = vote_counts.get("LEWIS", 0)
-        shap_n = vote_counts.get("SHAP", 0)
+        e2_n = vote_counts.get("LEWIS", 0)
+        e1_n = vote_counts.get("SHAP", 0)
         no_n = vote_counts.get("No", 0)
 
         r1, r2, r3 = st.columns(3)
-        r1.metric("LEWIS (Causal)", f"{lewis_n} ({100*lewis_n/total:.0f}%)")
-        r2.metric("SHAP (Statistical)", f"{shap_n} ({100*shap_n/total:.0f}%)")
+        r1.metric("Explanation 2", f"{e2_n} ({100*e2_n/total:.0f}%)")
+        r2.metric("Explanation 1", f"{e1_n} ({100*e1_n/total:.0f}%)")
         r3.metric("No Preference", f"{no_n} ({100*no_n/total:.0f}%)")
 
         with st.expander(f"Detailed Results ({total} responses)"):
@@ -505,7 +494,7 @@ def render_details_tab(artifacts, meta, feature_cols, model, test_df, selected_t
     st.markdown("""
     This project compares two approaches to explaining AI investment decisions:
 
-    | | LEWIS (Causal) | SHAP (Correlational) |
+    | | Explanation 2 | Explanation 1 |
     |---|---|---|
     | **Approach** | Finds what *causes* the decision | Finds what *predicts* the decision |
     | **Question** | "If we changed this factor, would the decision flip?" | "How much does this factor contribute to the prediction?" |
@@ -628,7 +617,7 @@ def render_details_tab(artifacts, meta, feature_cols, model, test_df, selected_t
     # =================================================================
     # 3. SHAP Feature Importance
     # =================================================================
-    st.header("3. SHAP Feature Importance (Correlational Baseline)")
+    st.header("3. Explanation 1 — Feature Importance")
 
     shap_col1, shap_col2 = st.columns(2)
     with shap_col1:
@@ -682,9 +671,9 @@ def render_details_tab(artifacts, meta, feature_cols, model, test_df, selected_t
     # =================================================================
     # 5. LEWIS Counterfactual Scores
     # =================================================================
-    st.header("5. LEWIS Counterfactual Scores (Multi-class Extension)")
+    st.header("5. Explanation 2 — Counterfactual Scores")
     st.markdown("""
-    LEWIS scores measure **causal feature importance** through counterfactual reasoning:
+    These scores measure **causal feature importance** through counterfactual reasoning:
     - **Nesuf** (Necessity-Sufficiency): Overall causal importance
     - **Nec** (Necessity): "If this feature decreased, would the decision flip?"
     - **Suf** (Sufficiency): "If this feature increased, would the decision flip?"
@@ -694,24 +683,24 @@ def render_details_tab(artifacts, meta, feature_cols, model, test_df, selected_t
 
     with lewis_col1:
         if "lewis_causal" in artifacts:
-            st.subheader("With Causal Graph")
+            st.subheader("With Graph")
             lewis_c = artifacts["lewis_causal"]
             fig, ax = plt.subplots(figsize=(8, 5))
             ax.barh(lewis_c["feature"], lewis_c["maxNesuf_avg"], color="#4ecdc4")
             ax.set_xlabel("maxNesuf (avg across pairwise comparisons)")
-            ax.set_title("LEWIS Feature Importance (Causal)")
+            ax.set_title("Explanation 2 — Feature Importance (With Causal Graph)")
             plt.tight_layout()
             st.pyplot(fig)
             plt.close()
 
     with lewis_col2:
         if "lewis_no_graph" in artifacts:
-            st.subheader("Without Causal Graph (Baseline)")
+            st.subheader("Without Graph (Baseline)")
             lewis_ng = artifacts["lewis_no_graph"]
             fig, ax = plt.subplots(figsize=(8, 5))
             ax.barh(lewis_ng["feature"], lewis_ng["maxNesuf_avg"], color="#95e1d3")
             ax.set_xlabel("maxNesuf (avg across pairwise comparisons)")
-            ax.set_title("LEWIS Feature Importance (No Graph)")
+            ax.set_title("Explanation 2 — Feature Importance (Without Causal Graph)")
             plt.tight_layout()
             st.pyplot(fig)
             plt.close()
@@ -726,10 +715,10 @@ def render_details_tab(artifacts, meta, feature_cols, model, test_df, selected_t
     # =================================================================
     # 6. SHAP vs LEWIS Comparison
     # =================================================================
-    st.header("6. SHAP vs LEWIS: Where They Disagree")
+    st.header("6. Explanation 1 vs Explanation 2: Where They Disagree")
     st.markdown("""
-    A feature can be a strong predictor (high SHAP) without being a cause (low LEWIS),
-    and vice versa. **Disagreements reveal spurious correlations.**
+    A feature can be a strong predictor (high statistical importance) without being a cause
+    (low causal importance), and vice versa. **Disagreements reveal spurious correlations.**
     """)
 
     comp_plot = RESULTS_DIR / "plots" / "shap_vs_lewis_comparison.png"
@@ -750,17 +739,17 @@ def render_details_tab(artifacts, meta, feature_cols, model, test_df, selected_t
         from scipy import stats
         if "rank_shap" in comp_df.columns and "rank_lewis" in comp_df.columns:
             corr, p_val = stats.spearmanr(comp_df["rank_shap"], comp_df["rank_lewis"])
-            st.metric("Spearman Rank Correlation (SHAP vs LEWIS)",
+            st.metric("Spearman Rank Correlation (Explanation 1 vs Explanation 2)",
                       f"{corr:.4f} (p={p_val:.4f})")
             if abs(corr) < 0.3:
                 st.success(
-                    "Low correlation confirms that causal and correlational explanations "
+                    "Low correlation confirms that the two explanations "
                     "tell **fundamentally different stories**."
                 )
             elif abs(corr) < 0.7:
                 st.info("Moderate correlation — partial agreement with meaningful differences.")
             else:
-                st.warning("High correlation — LEWIS and SHAP largely agree.")
+                st.warning("High correlation — both explanations largely agree.")
 
     disagree_path = RESULTS_DIR / "reports" / "key_disagreements.txt"
     if disagree_path.exists():
