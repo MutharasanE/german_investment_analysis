@@ -19,6 +19,11 @@ build/
 # Jupyter
 .ipynb_checkpoints/
 
+# Large data files not needed for the app
+data/raw/
+data/processed/
+*.parquet
+
 # Secrets (NEVER commit)
 .env
 *.env

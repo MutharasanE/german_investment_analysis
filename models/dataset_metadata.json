@@ -1,0 +1,51 @@
+{
+  "feature_cols": [
+    "volatility",
+    "momentum_1m",
+    "momentum_3m",
+    "momentum_6m",
+    "return_1y",
+    "max_drawdown",
+    "volume_avg",
+    "rsi_14",
+    "macd_signal",
+    "beta_market",
+    "pe_ratio",
+    "ecb_rate",
+    "us_10y_yield",
+    "vix",
+    "eur_usd",
+    "de_inflation",
+    "us_inflation"
+  ],
+  "target_col": "label",
+  "non_actionable_features": [
+    "de_inflation",
+    "ecb_rate",
+    "eur_usd",
+    "us_10y_yield",
+    "us_inflation",
+    "vix"
+  ],
+  "actionable_features": [
+    "beta_market",
+    "macd_signal",
+    "max_drawdown",
+    "momentum_1m",
+    "momentum_3m",
+    "momentum_6m",
+    "pe_ratio",
+    "return_1y",
+    "rsi_14",
+    "volatility",
+    "volume_avg"
+  ],
+  "rows_before_missing_handling": 1440887,
+  "rows_after_missing_handling": 1107440,
+  "rows_dropped_missing": 333447,
+  "split_rows": {
+    "train": 604663,
+    "validation": 116548,
+    "test": 243743
+  }
+}

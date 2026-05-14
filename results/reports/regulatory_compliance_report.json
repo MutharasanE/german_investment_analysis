@@ -1,42 +1,26 @@
 {
-  "report_metadata": {
-    "generated_at": "2026-04-16T22:09:14.061664",
-    "pipeline_version": "2.0-dax40-daily",
-    "data_source": "DAX 40 via Yahoo Finance (daily OHLCV)",
-    "model": "CatBoost MultiClass (Buy/Hold/Sell)",
-    "causal_method": "DirectLiNGAM with prior (b) + PC cross-check"
-  },
   "EU_AI_Act_Article_13": {
-    "requirement": "Transparency \u2014 High-risk AI systems must provide information enabling human oversight",
-    "implementation": "LEWIS counterfactual explanations provide feature-level causal necessity and sufficiency scores, enabling investment managers to understand the causal drivers of each recommendation",
+    "requirement": "Transparency for high-risk AI with understandable decision information",
+    "implementation": "LEWIS causal necessity/sufficiency scores are generated per feature and saved as auditable tables",
     "evidence": "results/tables/lewis_scores_causal.csv",
-    "gap": "Multi-class extension of LEWIS not yet peer-reviewed"
+    "gap": "Multi-class LEWIS extension remains a novel contribution and requires external peer validation"
   },
   "EU_AI_Act_Article_14": {
-    "requirement": "Human oversight \u2014 meaningful ability to override",
-    "implementation": "Streamlit app presents causal explanation alongside prediction, allowing analyst to approve/reject",
-    "evidence": "app.py survey functionality"
+    "requirement": "Human oversight with meaningful intervention ability",
+    "implementation": "Counterfactual feasibility constraints flag non-actionable macro features to support human override",
+    "evidence": "results/tables/counterfactual_validity_report.csv",
+    "gap": "Oversight quality depends on analyst training and policy integration"
   },
   "BaFin_AI_Guidelines_2024": {
-    "requirement": "Auditability of AI decision processes in banking",
-    "implementation": "All model artifacts, DAG, scores, and explanations are saved with timestamps and reproducible pipeline",
-    "evidence": "models/ directory, pipeline.py"
+    "requirement": "Auditability and traceability of model behavior in banking context",
+    "implementation": "Pipeline saves reproducible artifacts for model, DAG, explanation tables, and logs",
+    "evidence": "models/, results/tables/, results/pipeline.log",
+    "gap": "Operational controls for production deployment are out of scope of thesis prototype"
   },
   "MiFID_II_Article_25": {
-    "requirement": "Suitability \u2014 investment recommendations must be based on clients risk profile and justified",
-    "implementation": "Counterfactual feasibility constraints ensure recommendations are based on actionable, non-macro features only",
-    "evidence": "results/tables/counterfactual_validity_report.csv"
-  },
-  "model_quality": {
-    "test_accuracy": 0.4152,
-    "cohen_kappa": 0.0421,
-    "causal_pc_agreement_rate": 0.13043478260869565
-  },
-  "known_limitations": [
-    "DirectLiNGAM assumes linear non-Gaussian relationships \u2014 financial data may violate this in nonlinear regimes",
-    "DAG may be unstable during structural breaks (COVID-19, rate hikes) \u2014 bootstrap stability analysis documents which periods show instability",
-    "Multi-class LEWIS extension is novel \u2014 no peer-reviewed validation exists yet (this IS the thesis contribution)",
-    "Short data window (4 months daily) limits regime diversity \u2014 document as constraint in thesis methodology chapter",
-    "Expert survey may have small sample size \u2014 document minimum required for statistical significance"
-  ]
+    "requirement": "Suitability and justification of investment recommendations",
+    "implementation": "Actionability-aware counterfactual checks reduce infeasible recommendation drivers",
+    "evidence": "results/tables/counterfactual_validity_report.csv",
+    "gap": "Client-specific suitability dimensions require additional profile data"
+  }
 }

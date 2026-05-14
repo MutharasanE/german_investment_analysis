@@ -2,7 +2,7 @@
 name = "causal-xai"
 version = "0.1.0"
 description = "Causal Explainability for AI-Driven Investment Decisions in German Banks"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     # Core scientific
     "numpy>=1.26,<2.5",

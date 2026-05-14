@@ -1,0 +1,2 @@
+split_strategy,test_size,random_state,n_bins,n_total,n_train,n_test,accuracy,precision,recall,f1,tn,fp,fn,tp
+time,0.2,42,10,960,768,192,0.9739583333333334,1.0,0.9586776859504132,0.9789029535864979,71,0,5,116
