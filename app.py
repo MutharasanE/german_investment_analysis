@@ -826,9 +826,9 @@ def main():
 
     order_key = "survey_option_order"
     if order_key not in st.session_state:
-        options = ["Explanation A", "Explanation B", "No preference"]
+        options = ["Explanation A", "Explanation B"]
         random.shuffle(options)
-        st.session_state[order_key] = options
+        st.session_state[order_key] = ["No preference"] + options
 
     with st.form("minimal_survey_form", clear_on_submit=True):
         st.markdown("<div class='survey-question'>Which explanation is more convincing for this decision?</div>", unsafe_allow_html=True)
@@ -861,6 +861,14 @@ def main():
             label_visibility="collapsed",
         )
 
+        st.markdown("<div class='survey-question'>Quality check: please select \"Strongly Agree\" below.</div>", unsafe_allow_html=True)
+        attention_check = st.radio(
+            "Attention Check",
+            ["Strongly Disagree", "Disagree", "Neutral", "Agree", "Strongly Agree"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
         comment = st.text_area(
             "Optional comment or suggestions for improvement",
             placeholder="One short reason (optional)",
@@ -870,13 +878,14 @@ def main():
         submitted = st.form_submit_button("Submit", type="primary")
 
         if submitted:
+            attention_passed = attention_check == "Strongly Agree"
             chosen_label = "A" if preference_display == "Explanation A" else "B" if preference_display == "Explanation B" else "No"
             save_vote(
                 expert_name=expert_name or "Anonymous",
                 expert_role=expert_role,
                 experience_years=experience_years,
                 ticker=selected_ticker,
-                decision=f"decision_a:{result_a}|decision_b:{result_b}|features:{','.join(selected_features)}",
+                decision=f"decision_a:{result_a}|decision_b:{result_b}|features:{','.join(selected_features)}|attention:{'pass' if attention_passed else 'fail'}",
                 preference=chosen_label,
                 comment=f"Reason: {preference_reason}\n---\n{comment}" if preference_reason else comment,
                 chosen_label=chosen_label,
