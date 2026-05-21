@@ -34,15 +34,15 @@ except Exception:
 
 # Feature descriptions for management users
 FEATURE_DESCRIPTIONS = {
-    "volatility": "How much the stock price swings up and down (higher = riskier)",
-    "momentum": "Recent price trend — is the stock going up or down?",
-    "volume_avg": "How actively the stock is traded (liquidity indicator)",
-    "return_1y": "Total return over the past year (%)",
-    "max_drawdown": "Worst peak-to-trough drop in the past year (downside risk)",
-    "ecb_rate": "ECB main refinancing rate — the cost of borrowing in the eurozone",
+    "volatility": "Price volatility (risk)",
+    "momentum": "Recent price trend",
+    "volume_avg": "Average trading volume",
+    "return_1y": "Return over the past year",
+    "max_drawdown": "Maximum drop in the past year",
+    "ecb_rate": "ECB main refinancing rate",
     "eur_usd": "Euro to US Dollar exchange rate",
-    "de_inflation": "German inflation rate (year-over-year %)",
-    "vix": "Market fear index — expected volatility in the next 30 days",
+    "de_inflation": "German inflation rate",
+    "vix": "Market fear index (VIX)",
 }
 
 # DAX ticker to company name mapping
@@ -266,7 +266,7 @@ def build_explanation_text(score_df, score_col, n=3):
     for _, row in top.iterrows():
         feat = row["feature"]
         desc = FEATURE_DESCRIPTIONS.get(feat, feat)
-        parts.append(f"{feat} ({desc})")
+        parts.append(desc)
     return "Top drivers in this explanation are: " + ", ".join(parts) + "."
 
 
@@ -274,7 +274,8 @@ def render_neutral_explanation_chart(score_df, score_col, title):
     """Render a neutral explanation chart without exposing method identity."""
     top = score_df.nlargest(6, score_col).sort_values(score_col, ascending=True)
     fig, ax = plt.subplots(figsize=(8, 4.6))
-    ax.barh(top["feature"], top[score_col], color="#2A6EA6")
+    labels = [FEATURE_DESCRIPTIONS.get(f, f) for f in top["feature"]]
+    ax.barh(labels, top[score_col], color="#2A6EA6")
     ax.set_xlabel("Importance Score")
     ax.set_title(title)
     return fig
@@ -297,7 +298,8 @@ def plot_feature_trends(ticker_data, features, company_name):
             y = series[feat] * 0.0
 
         color = palette[idx % len(palette)]
-        ax.plot(series["date"], y, linewidth=2.2, color=color, label=feat)
+        desc = FEATURE_DESCRIPTIONS.get(feat, feat)
+        ax.plot(series["date"], y, linewidth=2.2, color=color, label=desc)
 
     ax.set_title(f"{company_name} - Feature Trends Over Time", fontsize=12.5, pad=10)
     ax.set_xlabel("Date", fontsize=10)
@@ -324,7 +326,7 @@ def explanation_for_decision(score_df, score_col, decision_label, n=3):
     for _, row in top.iterrows():
         feat = row["feature"]
         desc = FEATURE_DESCRIPTIONS.get(feat, feat)
-        lines.append(f"- {feat}: {desc}")
+        lines.append(f"- {desc}")
     return "\n".join(lines)
 
 
@@ -409,7 +411,7 @@ def build_counterfactual_explanation(ticker_data, score_df, score_col, current_d
     ]
     for feat, direction, current_val, desired, delta in actions:
         lines.append(
-            f"- **{direction}** {feat} from **{current_val:.3f}** to **{desired:.3f}** (delta **{delta:+.3f}**)"
+            f"- **{direction}** {feat} from **{current_val:.2f}** to **{desired:.2f}** (delta **{delta:+.3f}**)"
         )
     return target_decision, "\n".join(lines)
 
@@ -500,7 +502,7 @@ def interpret_lewis_top_features(lewis_df, n=3):
         else:
             strength = "a moderate causal factor"
         lines.append(f"- **{feat}** ({desc}) is {strength} "
-                     f"with a score of {score:.3f}")
+                     f"with a score of {score:.2f}")
     return "\n".join(lines)
 
 
@@ -519,7 +521,7 @@ def interpret_shap_top_features(shap_df, n=3):
         else:
             strength = "a moderate predictor"
         lines.append(f"- **{feat}** ({desc}) is {strength} "
-                     f"with a score of {score:.3f}")
+                     f"with a score of {score:.2f}")
     return "\n".join(lines)
 
 
@@ -532,7 +534,7 @@ def interpret_company_decision(row, feature_cols):
         if feat in row.index:
             val = row[feat]
             desc = FEATURE_DESCRIPTIONS.get(feat, "")
-            lines.append(f"- **{feat}**: {val:.4f} — {desc}")
+            lines.append(f"- **{feat}**: {val:.2f} — {desc}")
     return "\n".join(lines)
 
 
@@ -581,6 +583,8 @@ def main():
     st.markdown(
         """
         <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+            * { font-family: 'Inter', sans-serif; }
             .stApp {
                 background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 55%, #f8fbff 100%);
             }
@@ -629,6 +633,111 @@ def main():
         unsafe_allow_html=True,
     )
 
+
+
+    # Load artifacts
+
+    import base64
+    from pathlib import Path
+    logo_path = Path("assets/fs_logo.png")
+    if logo_path.exists():
+        with open(logo_path, "rb") as img_file:
+            logo_base64 = base64.b64encode(img_file.read()).decode()
+            st.markdown(
+                f'''
+                <style>
+                .top-right-logo {{
+                    position: fixed;
+                    top: 60px;
+                    right: 30px;
+                    width: 120px;
+                    z-index: 999999;
+                }}
+                </style>
+                <img src="data:image/png;base64,{logo_base64}" class="top-right-logo">
+                ''',
+                unsafe_allow_html=True
+            )
+
+
+    if "survey_started" not in st.session_state:
+        st.session_state.survey_started = False
+
+    if not st.session_state.survey_started:
+        st.markdown(
+            """
+            <style>
+            .hello-container {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 40px;
+                font-family: 'Inter', sans-serif;
+            }
+            .title-text {
+                color: #1e3a8a;
+                font-size: 2rem;
+                font-weight: 800;
+                margin-top: 20px;
+                margin-bottom: 10px;
+            }
+            .subtitle-text {
+                color: #475569;
+                font-size: 1.1rem;
+                line-height: 1.6;
+                margin-bottom: 30px;
+            }
+            .step-box {
+                background: #f8fafc;
+                border-left: 4px solid #3b82f6;
+                padding: 15px 20px;
+                margin-bottom: 15px;
+                border-radius: 0 8px 8px 0;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown(
+                """
+                <div class='hello-container'>
+                <div class="title-text">Expert Survey</div>
+                <div class="subtitle-text">
+                    Welcome! We are conducting research on <b>Causal Explainability for AI-Driven Investment Decisions in German Banks</b>.<br><br>
+                    <b>Researchers:</b> Kailash Selvan & Mutharasan (Frankfurt School MiM Students)<br><br>
+                    We have developed, trained, and tested an AI model for investment decisions. We are conducting this survey to see if <b>explainability (causal inference)</b> and <b>counterfactual explanations</b> make a difference in user trust compared to traditional correlational methods.
+                </div>
+                
+                <h3>Steps to complete:</h3>
+                
+                <div class="step-box">
+                    <b>1. Choose a stock in DAX30</b><br>
+                    <i>(We suggest to pick 2 stocks and see the results)</i>
+                </div>
+                
+                <div class="step-box">
+                    <b>2. Choose the indicators</b><br>
+                    Review the trends over time for the stock you selected.
+                </div>
+                
+                <div class="step-box">
+                    <b>3. Check the output and the explanations</b><br>
+                    Compare Explanation A and Explanation B, then answer the short survey below them.
+                </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            st.write("")
+            st.write("")
+            if st.button("Start Survey", type="primary", use_container_width=True):
+                st.session_state.survey_started = True
+                st.rerun()
+        return
+
     st.markdown(
         """
         <div class="survey-card">
@@ -639,7 +748,6 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # Load artifacts
     artifacts = load_artifacts()
     if artifacts is None:
         st.error(
@@ -696,11 +804,20 @@ def main():
     # First show decision context to minimize cognitive load.
     signal_scores = score_buy_hold_sell(ticker_data)
     model_decision = predict_decision_from_scores(signal_scores)
+
+    def color_decision(decision):
+        color = "#16a34a" if decision == "BUY" else "#dc2626" if decision == "SELL" else "#ca8a04"
+        return f"<div style='font-size: 2.4rem; font-weight: 700; color: {color}; line-height: 1.2;'>{decision}</div>"
+
+    def bold_black_metric(label, value):
+        return f"<div><span style='font-size: 0.9rem; color: #475569;'>{label}</span><br><span style='font-size: 2.4rem; font-weight: 700; color: #000000; line-height: 1.2;'>{value}</span></div>"
+
     d1, d2, d3, d4 = st.columns([1, 1, 1, 1.2])
-    d1.metric("BUY", f"{signal_scores['Buy']:.0%}")
-    d2.metric("HOLD", f"{signal_scores['Hold']:.0%}")
-    d3.metric("SELL", f"{signal_scores['Sell']:.0%}")
-    d4.metric("Current Decision", model_decision)
+    d1.markdown(bold_black_metric("BUY", f"{signal_scores['Buy']:.0%}"), unsafe_allow_html=True)
+    d2.markdown(bold_black_metric("HOLD", f"{signal_scores['Hold']:.0%}"), unsafe_allow_html=True)
+    d3.markdown(bold_black_metric("SELL", f"{signal_scores['Sell']:.0%}"), unsafe_allow_html=True)
+    d4.markdown(f"<div><span style='font-size: 0.9rem; color: #475569;'>Current Decision</span><br>{color_decision(model_decision)}</div>", unsafe_allow_html=True)
+
 
     candidate_features = [f for f in feature_cols if f in ticker_data.columns]
     default_features = candidate_features[:4] if len(candidate_features) >= 4 else candidate_features
@@ -708,6 +825,7 @@ def main():
         "Features to display over time",
         options=candidate_features,
         default=default_features,
+        format_func=lambda x: FEATURE_DESCRIPTIONS.get(x, x),
     )
 
     if selected_features:
@@ -721,7 +839,17 @@ def main():
     # Anonymous parallel explanation panels.
     map_key = f"ab_mapping_{selected_ticker}"
     
-    st.markdown("### Feature Glossary & Causal Graph")
+
+    st.markdown("### Causal Graph & Explanations")
+    st.markdown("""
+    <div style='background-color: #eef2ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #4f46e5;'>
+    <b>What are you seeing?</b><br>
+    • The <b>Causal Tree (Graph)</b> shows the cause-and-effect relationships between different financial indicators and the investment decision. Arrows indicate that changing one feature directly impacts the other.<br>
+    • <b>Counterfactual Explanations</b> show you 'what-if' scenarios. They highlight the minimal changes in the indicators that would be needed to flip the AI's current decision (for example, from HOLD to BUY).
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("### Feature Glossary")
     st.markdown("""
     **How features are calculated:**
     - **Momentum (1m, 3m, 6m):** Relative price strength comparing recent close to historical averages. Calculated as `price / past_price - 1.0`.
@@ -815,11 +943,11 @@ def main():
 
     st.markdown("### Result Summary")
     if result_a == result_b:
-        st.success(f"Final Result: {result_a}")
+        st.markdown(f"<div style='padding:15px; border-radius:8px; background:#f0fdf4; border:1px solid #bbf7d0;'><b>Final Result:</b><br> {color_decision(result_a)}</div>", unsafe_allow_html=True)
     else:
         r1, r2 = st.columns(2)
-        r1.metric("Explanation A Result", result_a)
-        r2.metric("Explanation B Result", result_b)
+        r1.markdown(f"<div class='explanation-box'><span style='font-size: 0.9rem; color: #475569;'>Explanation A Result</span><br>{color_decision(result_a)}</div>", unsafe_allow_html=True)
+        r2.markdown(f"<div class='explanation-box'><span style='font-size: 0.9rem; color: #475569;'>Explanation B Result</span><br>{color_decision(result_b)}</div>", unsafe_allow_html=True)
 
     st.markdown("---")
     st.subheader("Survey")
