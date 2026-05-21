@@ -705,9 +705,9 @@ def main():
                 <div class='hello-container'>
                 <div class="title-text">Expert Survey</div>
                 <div class="subtitle-text">
-                    Welcome! We are conducting research on <b>Causal Explainability for AI-Driven Investment Decisions in German Banks</b>.<br><br>
+                    Welcome! We are conducting research on <b>Causal Explainability for ML-Driven Investment Decisions in German Investors</b>.<br><br>
                     <b>Researchers:</b> Kailash Selvan & Mutharasan (Frankfurt School MiM Students)<br><br>
-                    We have developed, trained, and tested an AI model for investment decisions. We are conducting this survey to see if <b>explainability (causal inference)</b> and <b>counterfactual explanations</b> make a difference in user trust compared to traditional correlational methods.
+                    We have developed, trained, and tested an ML model for investment decisions. We are conducting this survey to see if <b>explainability (causal inference)</b> and <b>counterfactual explanations</b> make a difference in user trust compared to traditional correlational methods.
                 </div>
                 
                 <h3>Steps to complete:</h3>
