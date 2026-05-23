@@ -373,19 +373,15 @@ def build_counterfactual_explanation(ticker_data, score_df, score_col, current_d
         if target_decision == "BUY":
             if feat in increase_for_buy:
                 desired = float(series.quantile(0.75))
-                direction = "Increase"
             elif feat in decrease_for_buy:
                 desired = float(series.quantile(0.25))
-                direction = "Decrease"
             else:
                 continue
         else:
             if feat in increase_for_buy:
                 desired = float(series.quantile(0.45))
-                direction = "Decrease"
             elif feat in decrease_for_buy:
                 desired = float(series.quantile(0.55))
-                direction = "Increase"
             else:
                 continue
 
@@ -393,6 +389,7 @@ def build_counterfactual_explanation(ticker_data, score_df, score_col, current_d
         if abs(delta) < 1e-9:
             continue
 
+        direction = "Increase" if delta > 0 else "Decrease"
         actions.append((feat, direction, current_val, desired, delta))
         if len(actions) >= n:
             break
