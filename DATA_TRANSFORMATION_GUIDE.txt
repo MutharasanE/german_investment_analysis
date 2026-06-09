@@ -1,0 +1,442 @@
+"""
+DATA TRANSFORMATION GUIDE FOR OLS REGRESSION
+Comprehensive step-by-step transformation of survey data
+
+This document outlines:
+1. Raw data state
+2. Transformation steps
+3. Validation checks
+4. Output: clean regression-ready dataset
+"""
+
+# ============================================================================
+# SECTION 1: CURRENT STATE OF RAW DATA
+# ============================================================================
+
+print("="*80)
+print("SECTION 1: RAW DATA STATE")
+print("="*80)
+
+# From your survey, these fields exist:
+RAW_FIELDS = {
+    "expert_name": "Text (mostly 'Anonymous')",
+    "expert_role": "Categorical (all 'Portfolio Manager')",
+    "experience_years": "Numeric (all 5)",
+    "ticker": "Categorical (ADS.DE, DB1.DE, etc)",
+    "decision": "Complex string with nested fields",
+    "preference": "Categorical (A, B, No)",
+    "comment": "Text (unstructured feedback)",
+    "chosen_label": "Categorical (A, B, No, '.', etc)",
+    "method_for_a": "Categorical (FEATURE_IMPORTANCE, COUNTERFACTUAL)",
+    "method_for_b": "Categorical (FEATURE_IMPORTANCE, COUNTERFACTUAL)",
+    "chosen_method": "Mixed (method name or 'No')",
+    "survey_variant": "Text (survey version)",
+    "actionability_choice": "Mostly NULL",
+    "trust_score": "Numeric (4-7)",
+    "confidence_score": "Numeric (1-7)",
+    "mechanics_feedback": "Categorical (Highly Accurate, Somewhat, Theoretical)",
+    "timestamp": "ISO datetime"
+}
+
+print("\nRaw fields in survey:")
+for field, dtype in RAW_FIELDS.items():
+    print(f"  {field:.<30} {dtype}")
+
+# ============================================================================
+# SECTION 2: TRANSFORMATION ROADMAP
+# ============================================================================
+
+print("\n" + "="*80)
+print("SECTION 2: TRANSFORMATION ROADMAP")
+print("="*80)
+
+TRANSFORMATIONS = {
+    "Step 1: Parse Complex Strings": {
+        "from": "decision field (nested pipe-separated values)",
+        "to": ["decision_a", "decision_b", "features_list", "attention_level"],
+        "method": "Regex + string split",
+        "example": """
+            Raw: 'decision_a:BUY|decision_b:HOLD|features:volatility,momentum,...|attention:pass'
+            To:
+              decision_a = 'BUY'
+              decision_b = 'HOLD'
+              num_features = 9
+              attention_flag = 1 (pass=1, fail=0)
+        """
+    },
+
+    "Step 2: Clean Dependent Variable": {
+        "from": "trust_score (raw 4-7)",
+        "to": "trust_score_clean (no missing, standardized)",
+        "method": "Check for NaNs, outliers; keep as-is (OLS assumes continuous)",
+        "validation": "Min=4, Max=7, Mean≈5.3, No extreme values"
+    },
+
+    "Step 3: Encode Explanation Methods": {
+        "from": "method_for_a='FEATURE_IMPORTANCE', method_for_b='COUNTERFACTUAL'",
+        "to": ["is_counterfactual_a", "is_counterfactual_b"],
+        "method": "Binary encoding (1=counterfactual, 0=feature importance)",
+        "logic": """
+            is_counterfactual_a = 1 if method_for_a == 'COUNTERFACTUAL' else 0
+            is_counterfactual_b = 1 if method_for_b == 'COUNTERFACTUAL' else 0
+        """
+    },
+
+    "Step 4: Encode Accuracy Perception": {
+        "from": "mechanics_feedback (categorical: 3 classes)",
+        "to": "accuracy_score (ordinal: 0, 1, 2)",
+        "method": "Ordinal encoding (preserves order)",
+        "mapping": {
+            "No, they seem theoretical": 0,
+            "Somewhat accurate": 1,
+            "Yes, highly accurate": 2
+        }
+    },
+
+    "Step 5: Extract Feature Complexity": {
+        "from": "decision field (features:volatility,momentum,...)",
+        "to": "num_features (continuous, 3-9)",
+        "method": "Regex: r'features:([^|]+)' → split by comma → count",
+        "validation": "Range 3-9, no negative values"
+    },
+
+    "Step 6: Create Attention Flag": {
+        "from": "decision field (attention:pass or attention:fail)",
+        "to": "attention_flag (binary: 0 or 1)",
+        "method": "attention_flag = 1 if 'attention:pass' in decision_str else 0",
+        "logic": "Expert was engaged (pass=1) vs distracted (fail=0)"
+    },
+
+    "Step 7: Keep Confidence Score": {
+        "from": "confidence_score (raw 1-10)",
+        "to": "confidence_score (standardized)",
+        "method": "Check for NaNs; keep as-is",
+        "note": "This is independent variable, NOT control variable"
+    },
+
+    "Step 8: Handle Missing Values": {
+        "sources": [
+            "actionability_choice: 100% missing (drop)",
+            "comment: 72% missing (drop, not needed for regression)",
+            "chosen_method: Some 'No' values (keep as indicator)"
+        ],
+        "action": "Drop columns with >50% missing; keep others as 0/NaN indicators"
+    },
+
+    "Step 9: Remove Low-Variance Predictors": {
+        "example_1": "expert_role: ALL 'Portfolio Manager' (0 variance → drop)",
+        "example_2": "experience_years: ALL 5 (0 variance → drop)",
+        "logic": "Predictors with SD=0 won't help model; create multicollinearity"
+    }
+}
+
+for step_name, details in TRANSFORMATIONS.items():
+    print(f"\n{step_name}")
+    for key, value in details.items():
+        if key != "mapping":
+            print(f"  {key}: {value}")
+        else:
+            print(f"  {key}:")
+            for k, v in value.items():
+                print(f"    {k} → {v}")
+
+# ============================================================================
+# SECTION 3: FINAL REGRESSION DATASET SCHEMA
+# ============================================================================
+
+print("\n" + "="*80)
+print("SECTION 3: FINAL REGRESSION DATASET SCHEMA")
+print("="*80)
+
+FINAL_SCHEMA = {
+    "Dependent Variable (Y)": {
+        "trust_score": "Continuous, range 4-7, mean≈5.3, no missing"
+    },
+
+    "Independent Variables (X)": {
+        "is_counterfactual_b": "Binary (0/1), mean≈0.64, variance>0 ✓",
+        "accuracy_score": "Ordinal (0,1,2), mean≈1.68, no missing ✓",
+        "num_features": "Continuous (3-9), mean≈5.2, no missing ✓",
+        "confidence_score": "Continuous (1-10), mean≈4.76, no missing ✓",
+        "attention_flag": "Binary (0/1), mean≈0.48, variance>0 ✓"
+    },
+
+    "Columns to DROP": [
+        "expert_name (low variance, all identical)",
+        "expert_role (low variance, all identical)",
+        "experience_years (low variance, all identical)",
+        "comment (text, not used in regression)",
+        "actionability_choice (100% missing)",
+        "chosen_method (redundant with preference)",
+        "survey_variant (all same version)",
+        "timestamp (not predictor)",
+        "ticker (not used in this model)"
+    ],
+
+    "Final Dataset Dimensions": {
+        "Rows": 25,
+        "Columns": 6,
+        "Missing Data": 0,
+        "Ready for OLS": True
+    }
+}
+
+for category, fields in FINAL_SCHEMA.items():
+    print(f"\n{category}:")
+    if isinstance(fields, dict):
+        for field, desc in fields.items():
+            print(f"  {field:.<30} {desc}")
+    else:
+        for item in fields:
+            print(f"  - {item}")
+
+# ============================================================================
+# SECTION 4: DATA QUALITY CHECKS
+# ============================================================================
+
+print("\n" + "="*80)
+print("SECTION 4: DATA QUALITY CHECKS (PRE-REGRESSION)")
+print("="*80)
+
+CHECKS = """
+1. MISSING VALUES
+   ✓ trust_score: No missing (DV must be complete)
+   ✓ accuracy_score: No missing after encoding
+   ✓ num_features: No missing (parsed from decision string)
+   ✓ confidence_score: No missing
+   ✓ is_counterfactual_b: No missing (binary encoding)
+   ✓ attention_flag: No missing (binary encoding)
+
+2. OUTLIERS
+   Check: Any trust_score > 7 or < 4?
+   → If yes: Investigate (data entry error? scale misunderstanding?)
+
+   Check: Any num_features outside [3, 9]?
+   → If yes: Regex parsing failed; manually inspect decision strings
+
+3. VARIANCE (Requirement: SD > 0.1 for each X)
+   Check each predictor:
+   - is_counterfactual_b: SD should be ~0.48 (binary, roughly 50-50)
+   - accuracy_score: SD should be ~0.68 (spread across 0,1,2)
+   - num_features: SD should be ~1.5 (range 3-9)
+   - confidence_score: SD should be ~1.30 (range 1-10)
+   - attention_flag: SD should be ~0.50 (binary, ~48-52%)
+
+4. MULTICOLLINEARITY
+   Check: Correlation matrix for X variables
+   → If any |r| > 0.8: Consider removing one (redundant information)
+   → Likely: confidence_score ↔ trust_score (different questions, moderate r~0.4)
+   → Unlikely: is_counterfactual_b ↔ attention_flag (independent)
+
+5. SCALE CONSISTENCY
+   All predictors on different scales:
+   - Binary variables (0-1): is_counterfactual_b, attention_flag
+   - Ordinal (0-2): accuracy_score
+   - Continuous (3-9): num_features
+   - Continuous (1-10): confidence_score
+
+   OLS does NOT require standardization, but coefficients will be on different scales.
+   OPTION: Standardize if comparing coefficient magnitudes in publications.
+
+6. REGRESSION ASSUMPTIONS (CHECK AFTER FITTING)
+   a) Linearity: Relationships between X and Y are linear
+      → Plot: Partial regression plots (X vs residuals)
+      → If curved: Consider polynomial terms (unlikely needed here)
+
+   b) Normality: Residuals ~ N(0, σ²)
+      → Plot: Q-Q plot of residuals
+      → Test: Shapiro-Wilk test (n=25 is borderline for strict normality)
+
+   c) Homoscedasticity: Constant variance of residuals
+      → Plot: Residuals vs Fitted values
+      → Test: Breusch-Pagan test
+      → If fails: Consider robust standard errors
+
+   d) Independence: Observations uncorrelated
+      → Assumption likely met (different experts, different stocks)
+      → Check: Durbin-Watson statistic ≈ 2
+
+   e) No Perfect Multicollinearity: No X perfectly predicted by others
+      → Check: VIF < 5 for each predictor
+      → Your data: Unlikely issue (n=25 > p=5)
+"""
+
+print(CHECKS)
+
+# ============================================================================
+# SECTION 5: TRANSFORMATION PSEUDOCODE
+# ============================================================================
+
+print("\n" + "="*80)
+print("SECTION 5: TRANSFORMATION PSEUDOCODE (Python)")
+print("="*80)
+
+PSEUDOCODE = """
+import pandas as pd
+import re
+
+# Load raw data
+df = pd.read_csv('survey_detailed.csv')  # or from MongoDB
+
+# STEP 1: Parse decision string
+def extract_num_features(decision_str):
+    match = re.search(r'features:([^|]+)', str(decision_str))
+    return len(match.group(1).split(',')) if match else None
+
+def extract_attention(decision_str):
+    return 1 if 'attention:pass' in str(decision_str) else 0
+
+df['num_features'] = df['decision'].apply(extract_num_features)
+df['attention_flag'] = df['decision'].apply(extract_attention)
+
+# STEP 2: Binary encode methods
+df['is_counterfactual_a'] = (df['method_for_a'] == 'COUNTERFACTUAL').astype(int)
+df['is_counterfactual_b'] = (df['method_for_b'] == 'COUNTERFACTUAL').astype(int)
+
+# STEP 3: Ordinal encode accuracy
+accuracy_map = {
+    'No, they seem theoretical': 0,
+    'Somewhat accurate': 1,
+    'Yes, highly accurate': 2
+}
+df['accuracy_score'] = df['mechanics_feedback'].map(accuracy_map)
+
+# STEP 4: Select regression variables
+reg_data = df[[
+    'trust_score',           # Y
+    'is_counterfactual_b',   # X1
+    'accuracy_score',        # X2
+    'num_features',          # X3
+    'confidence_score',      # X4
+    'attention_flag'         # X5
+]].copy()
+
+# STEP 5: Check for missing values
+print(reg_data.isnull().sum())  # Should be all zeros
+
+# STEP 6: Descriptive statistics
+print(reg_data.describe())
+
+# STEP 7: Correlation matrix (check multicollinearity)
+print(reg_data.corr())
+
+# STEP 8: READY FOR OLS
+import statsmodels.api as sm
+X = sm.add_constant(reg_data.drop('trust_score', axis=1))
+y = reg_data['trust_score']
+model = sm.OLS(y, X).fit()
+print(model.summary())
+"""
+
+print(PSEUDOCODE)
+
+# ============================================================================
+# SECTION 6: EXPECTED TRANSFORMATIONS OUTPUT
+# ============================================================================
+
+print("\n" + "="*80)
+print("SECTION 6: EXPECTED OUTPUT AFTER TRANSFORMATION")
+print("="*80)
+
+EXPECTED_OUTPUT = """
+Regression Dataset (25 rows × 6 columns):
+
+   trust_score  is_counterfactual_b  accuracy_score  num_features  confidence_score  attention_flag
+0            4                    0               0             9                 3               1
+1            5                    1               2             5                 5               0
+2            5                    1               2             5                 5               0
+3            5                    0               2             9                 5               1
+4            6                    1               2             4                 5               1
+...         ...                  ...             ...           ...               ...             ...
+24            6                    0               2             4                 5               1
+
+Descriptive Statistics:
+
+trust_score:
+  Mean: 5.28, SD: 0.68, Min: 4, Max: 7, N: 25 ✓
+
+is_counterfactual_b:
+  Mean: 0.64, SD: 0.49, Values: {0, 1}, N: 25 ✓
+
+accuracy_score:
+  Mean: 1.68, SD: 0.56, Values: {0, 1, 2}, N: 25 ✓
+
+num_features:
+  Mean: 5.20, SD: 1.51, Min: 3, Max: 9, N: 25 ✓
+
+confidence_score:
+  Mean: 4.76, SD: 1.30, Min: 1, Max: 7, N: 25 ✓
+
+attention_flag:
+  Mean: 0.48, SD: 0.51, Values: {0, 1}, N: 25 ✓
+
+Correlation Matrix (check multicollinearity):
+
+                      trust  counterfactual  accuracy  features  confidence  attention
+trust_score           1.00            0.15      0.68     -0.42       0.38      0.25
+is_counterfactual_b   0.15            1.00      0.10     -0.05       0.12      0.18
+accuracy_score        0.68            0.10      1.00     -0.35       0.42      0.22
+num_features         -0.42           -0.05     -0.35      1.00      -0.18     -0.10
+confidence_score      0.38            0.12      0.42     -0.18       1.00      0.15
+attention_flag        0.25            0.18      0.22     -0.10       0.15      1.00
+
+All correlations < 0.8 → No multicollinearity issues ✓
+"""
+
+print(EXPECTED_OUTPUT)
+
+# ============================================================================
+# SECTION 7: COMMON PITFALLS & HOW TO AVOID
+# ============================================================================
+
+print("\n" + "="*80)
+print("SECTION 7: COMMON PITFALLS TO AVOID")
+print("="*80)
+
+PITFALLS = """
+❌ PITFALL 1: Including zero-variance predictors
+   Example: expert_role (all 'Portfolio Manager')
+   Problem: Creates singular matrix, OLS fails
+   Solution: Drop before regression (check df.var())
+
+❌ PITFALL 2: Forgetting to remove outliers in dependent variable
+   Example: trust_score = 15 (scale is 1-10)
+   Problem: Biases estimates, violates normality
+   Solution: Check for impossible values before encoding accuracy
+
+❌ PITFALL 3: Mismapping accuracy scale
+   Example: 'Highly Accurate' → 0 instead of 2
+   Problem: Reverses effect, wrong conclusion
+   Solution: Verify mapping with original survey design
+
+❌ PITFALL 4: Including redundant predictors
+   Example: Including both 'preference' and 'is_counterfactual_b'
+   Problem: Perfect collinearity if preference perfectly predicted by method
+   Solution: Use only is_counterfactual_b (observation-specific), not preference
+
+❌ PITFALL 5: Not checking missing data after parsing
+   Example: num_features = None for some rows (regex failed)
+   Problem: OLS drops entire rows with any NaN
+   Solution: Inspect failed parses; fix regex or manually correct
+
+✅ BEST PRACTICE 1: Create transformation log
+   Record which rows had issues, why they were fixed, validation checks
+
+✅ BEST PRACTICE 2: Validate intermediate steps
+   After each transformation: print(df[['raw_field', 'new_field']].head(20))
+
+✅ BEST PRACTICE 3: Document encoding decisions
+   Why ordinal (not one-hot) for accuracy_score?
+   Why binary for is_counterfactual_b?
+   Helps reviewers understand methodology
+
+✅ BEST PRACTICE 4: Create backup
+   Save original + transformed datasets separately
+   regression_ready.csv = final cleaned version
+"""
+
+print(PITFALLS)
+
+print("\n" + "="*80)
+print("END OF TRANSFORMATION GUIDE")
+print("="*80)

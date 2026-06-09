@@ -1,0 +1,2 @@
+number,value,datetime_start,datetime_complete,duration,params_bagging_temperature,params_depth,params_iterations,params_l2_leaf_reg,params_learning_rate,state
+0,0.36853456562965853,2026-04-27 14:29:12.776482,2026-04-27 14:31:42.802444,0 days 00:02:30.025962,0.15601864044243652,9,1000,6,0.17254716573280354,COMPLETE

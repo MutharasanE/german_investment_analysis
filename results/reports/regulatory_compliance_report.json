@@ -1,0 +1,26 @@
+{
+  "EU_AI_Act_Article_13": {
+    "requirement": "Transparency for high-risk AI with understandable decision information",
+    "implementation": "LEWIS causal necessity/sufficiency scores are generated per feature and saved as auditable tables",
+    "evidence": "results/tables/lewis_scores_causal.csv",
+    "gap": "Multi-class LEWIS extension remains a novel contribution and requires external peer validation"
+  },
+  "EU_AI_Act_Article_14": {
+    "requirement": "Human oversight with meaningful intervention ability",
+    "implementation": "Counterfactual feasibility constraints flag non-actionable macro features to support human override",
+    "evidence": "results/tables/counterfactual_validity_report.csv",
+    "gap": "Oversight quality depends on analyst training and policy integration"
+  },
+  "BaFin_AI_Guidelines_2024": {
+    "requirement": "Auditability and traceability of model behavior in banking context",
+    "implementation": "Pipeline saves reproducible artifacts for model, DAG, explanation tables, and logs",
+    "evidence": "models/, results/tables/, results/pipeline.log",
+    "gap": "Operational controls for production deployment are out of scope of thesis prototype"
+  },
+  "MiFID_II_Article_25": {
+    "requirement": "Suitability and justification of investment recommendations",
+    "implementation": "Actionability-aware counterfactual checks reduce infeasible recommendation drivers",
+    "evidence": "results/tables/counterfactual_validity_report.csv",
+    "gap": "Client-specific suitability dimensions require additional profile data"
+  }
+}

@@ -1,0 +1,29 @@
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:            trust_score   R-squared:                       0.419
+Model:                            OLS   Adj. R-squared:                  0.266
+Method:                 Least Squares   F-statistic:                     2.743
+Date:                Fri, 05 Jun 2026   Prob (F-statistic):             0.0499
+Time:                        15:29:01   Log-Likelihood:                -18.465
+No. Observations:                  25   AIC:                             48.93
+Df Residuals:                      19   BIC:                             56.24
+Df Model:                           5                                         
+Covariance Type:            nonrobust                                         
+=======================================================================================
+                          coef    std err          t      P>|t|      [0.025      0.975]
+---------------------------------------------------------------------------------------
+const                   5.3888      1.444      3.733      0.001       2.367       8.411
+is_counterfactual_b     0.0007      0.306      0.002      0.998      -0.639       0.641
+accuracy_score         -0.1008      0.334     -0.302      0.766      -0.800       0.598
+num_features           -0.2433      0.142     -1.718      0.102      -0.540       0.053
+confidence_score        0.2156      0.101      2.129      0.047       0.004       0.428
+attention_flag          0.4279      0.307      1.395      0.179      -0.214       1.070
+==============================================================================
+Omnibus:                       15.935   Durbin-Watson:                   2.396
+Prob(Omnibus):                  0.000   Jarque-Bera (JB):               17.501
+Skew:                           1.496   Prob(JB):                     0.000158
+Kurtosis:                       5.801   Cond. No.                         89.0
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.

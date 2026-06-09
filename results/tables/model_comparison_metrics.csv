@@ -1,0 +1,12 @@
+Metric,Previous Model (Unweighted),Updated Model (Weighted)
+Accuracy,0.4656,0.4033
+Macro F1,0.3129,0.3726
+Buy Recall (Accuracy of actual Buys),0.0811,0.2384
+Buy Precision,0.4583,0.3448
+Buy F1,0.1378,0.2819
+Hold Recall,0.9068,0.5406
+Hold Precision,0.475,0.4937
+Hold F1,0.6234,0.5161
+Sell Recall (Accuracy of actual Sells),0.1164,0.3458
+Sell Precision,0.3732,0.2973
+Sell F1,0.1775,0.3197

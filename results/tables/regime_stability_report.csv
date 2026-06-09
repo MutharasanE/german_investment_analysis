@@ -1,0 +1,4 @@
+regime_a,regime_b,jaccard_similarity
+Bull,Crisis,0.2807017543859649
+Bull,Neutral,0.5
+Crisis,Neutral,0.44642857142857145

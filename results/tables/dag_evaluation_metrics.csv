@@ -1,0 +1,4 @@
+metric,value
+spearman_rank_causal_vs_no_graph,0.9607843137254902
+spearman_pvalue,9.249159927780467e-10
+mae_nesuf_causal_vs_no_graph,0.012440644082873823

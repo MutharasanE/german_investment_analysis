@@ -1,0 +1,23 @@
+{
+  "model_info": {
+    "dependent_variable": "trust_score (1-10)",
+    "independent_variables": [
+      "is_counterfactual_b: Method B is counterfactual (1) vs feature importance (0)",
+      "accuracy_score: Perceived accuracy (0=theoretical, 1=somewhat, 2=highly accurate)",
+      "num_features: Number of features in explanation (3-9)",
+      "confidence_score: Expert confidence (1-10)",
+      "attention_flag: Expert paid attention (1) vs distracted (0)"
+    ],
+    "sample_size": 25,
+    "r_squared": 0.41918469865337715,
+    "adjusted_r_squared": 0.2663385667200554,
+    "f_statistic": 2.7425273597126023,
+    "f_pvalue": 0.04985192351611034
+  },
+  "coefficients": {
+    "const": {
+      "coefficient": 5.388781979819616,
+      "pvalue": 0.001410994961693646,
+      "ci_lower": 2.367037947863196,
+      "ci_upper": 8.410526011776037,
+      "significant": 
